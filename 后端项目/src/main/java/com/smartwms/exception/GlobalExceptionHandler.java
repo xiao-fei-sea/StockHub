@@ -23,10 +23,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /** 参数校验失败（DTO @Valid）→ 40001，HTTP 400。 */
+    /** 参数校验失败（DTO @Valid：请求体为 MethodArgumentNotValidException，查询参数绑定为 BindException）→ 40001，HTTP 400。 */
     @ExceptionHandler({MethodArgumentNotValidException.class, BindException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleValidation(MethodArgumentNotValidException ex) {
+    public Result<Void> handleValidation(BindException ex) {
         FieldError fe = ex.getBindingResult().getFieldError();
         String msg = fe == null ? ResultCode.PARAM_INVALID.getMessage()
                 : fe.getField() + " " + fe.getDefaultMessage();
