@@ -24,5 +24,7 @@ public class SysDept {
     private Integer status;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
+    private Long createBy;
+    private Long updateBy;
     private Integer deleted;
 }
