@@ -56,4 +56,22 @@ public interface InventoryMapper extends BaseMapper<Inventory> {
             """)
     BigDecimal sumAvailableQty(@Param("warehouseId") Long warehouseId,
                                @Param("productId") Long productId);
+
+    /**
+     * 调拨过账前按固定顺序预锁源仓库存行（文档 13.5 规则 4：
+     * 行锁顺序 (warehouse_id, location_id, product_id, batch_id)，避免与其它过账死锁）。
+     * 后续 FIFO 候选查询命中已锁行（同事务）不再阻塞；FOR UPDATE 需在事务内调用。
+     */
+    @Select("""
+            <script>
+            SELECT * FROM inventory
+            WHERE warehouse_id = #{warehouseId} AND deleted = 0
+              AND product_id IN
+              <foreach collection="productIds" item="pid" open="(" separator="," close=")">#{pid}</foreach>
+            ORDER BY location_id ASC, product_id ASC, batch_id ASC
+            FOR UPDATE
+            </script>
+            """)
+    List<Inventory> selectForUpdateByProducts(@Param("warehouseId") Long warehouseId,
+                                              @Param("productIds") java.util.Collection<Long> productIds);
 }
