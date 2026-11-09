@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Configuration;
         "com.smartwms.inventory.mapper",
         "com.smartwms.stocktake.mapper",
         "com.smartwms.transfer.mapper",
+        "com.smartwms.alert.mapper",
         "com.smartwms.stats.mapper",
         "com.smartwms.log.mapper"
 })
