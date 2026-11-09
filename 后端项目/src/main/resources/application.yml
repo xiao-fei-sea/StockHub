@@ -11,7 +11,7 @@ spring:
     active: dev
   datasource:
     # 数据库连接（生产环境通过环境变量注入，禁止在仓库中写明文密码）
-    url: ${DB_URL:jdbc:mysql://localhost:3306/smartwms?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/smartwms?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${DB_USER:root}
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
