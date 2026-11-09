@@ -109,7 +109,7 @@ public class InboundServiceImpl implements InboundService {
                         dto.getCreateTimeFrom() == null ? null : dto.getCreateTimeFrom().atStartOfDay())
                 .lt(dto.getCreateTimeTo() != null, InboundOrder::getCreateTime,
                         dto.getCreateTimeTo() == null ? null : dto.getCreateTimeTo().plusDays(1).atStartOfDay())
-                .in(allowed != null, InboundOrder::getId, allowed)
+                .in(allowed != null, InboundOrder::getWarehouseId, allowed)
                 .orderByDesc(InboundOrder::getCreateTime)
                 .orderByDesc(InboundOrder::getId);
         if (StringUtils.hasText(dto.getInboundNo())) {

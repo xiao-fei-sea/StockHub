@@ -79,7 +79,7 @@ public class RackServiceImpl implements RackService {
                 .eq(dto.getWarehouseId() != null, Rack::getWarehouseId, dto.getWarehouseId())
                 .eq(dto.getAreaId() != null, Rack::getAreaId, dto.getAreaId())
                 .eq(dto.getStatus() != null, Rack::getStatus, dto.getStatus())
-                .in(allowed != null, Rack::getId, allowed)
+                .in(allowed != null, Rack::getWarehouseId, allowed)
                 .orderByAsc(Rack::getId);
         if (StringUtils.hasText(dto.getKeyword())) {
             String like = "%" + dto.getKeyword().trim() + "%";

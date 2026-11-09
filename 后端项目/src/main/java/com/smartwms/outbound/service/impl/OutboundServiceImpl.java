@@ -119,7 +119,7 @@ public class OutboundServiceImpl implements OutboundService {
                         start == null ? null : start.atStartOfDay())
                 .lt(end != null, OutboundOrder::getCreateTime,
                         end == null ? null : end.plusDays(1).atStartOfDay())
-                .in(allowed != null, OutboundOrder::getId, allowed)
+                .in(allowed != null, OutboundOrder::getWarehouseId, allowed)
                 .orderByDesc(OutboundOrder::getCreateTime)
                 .orderByDesc(OutboundOrder::getId);
         if (StringUtils.hasText(dto.getOutboundNo())) {

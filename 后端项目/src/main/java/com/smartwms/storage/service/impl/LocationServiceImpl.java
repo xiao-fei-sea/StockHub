@@ -87,7 +87,7 @@ public class LocationServiceImpl implements LocationService {
                 .eq(dto.getStatus() != null, Location::getStatus, dto.getStatus())
                 .eq(stateCode != null, Location::getCurrentStatus, stateCode)
                 .eq(typeCode != null, Location::getLocationType, typeCode)
-                .in(allowed != null, Location::getId, allowed)
+                .in(allowed != null, Location::getWarehouseId, allowed)
                 .orderByAsc(Location::getSort)
                 .orderByAsc(Location::getId);
         if (StringUtils.hasText(dto.getKeyword())) {
@@ -257,7 +257,7 @@ public class LocationServiceImpl implements LocationService {
                 .eq(Location::getStatus, 1) // 默认过滤停用货位（可用性口径）
                 .eq(stateCode != null, Location::getCurrentStatus, stateCode)
                 .eq(typeCode != null, Location::getLocationType, typeCode)
-                .in(allowed != null, Location::getId, allowed)
+                .in(allowed != null, Location::getWarehouseId, allowed)
                 .orderByAsc(Location::getSort)
                 .orderByAsc(Location::getId)
                 .last("LIMIT " + OPTIONS_LIMIT);

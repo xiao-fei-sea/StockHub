@@ -65,7 +65,7 @@ public class AreaServiceImpl implements AreaService {
                 .eq(dto.getWarehouseId() != null, StorageArea::getWarehouseId, dto.getWarehouseId())
                 .eq(areaType != null, StorageArea::getAreaType, areaType)
                 .eq(dto.getStatus() != null, StorageArea::getStatus, dto.getStatus())
-                .in(allowed != null, StorageArea::getId, allowed)
+                .in(allowed != null, StorageArea::getWarehouseId, allowed)
                 .orderByAsc(StorageArea::getId); // storage_area 表无 sort 字段
         if (StringUtils.hasText(dto.getKeyword())) {
             String like = "%" + dto.getKeyword().trim() + "%";
