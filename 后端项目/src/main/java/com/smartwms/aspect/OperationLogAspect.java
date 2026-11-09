@@ -48,7 +48,7 @@ public class OperationLogAspect {
                     : truncate(e.getMessage(), 500));
             throw e;
         } finally {
-            operLog.setCostTime(System.currentTimeMillis() - start);
+            operLog.setCostTime((int) (System.currentTimeMillis() - start));
             operLog.setOperTime(LocalDateTime.now());
             operLogService.record(operLog);
         }
@@ -65,6 +65,25 @@ public class OperationLogAspect {
         if (auth != null && auth.getPrincipal() instanceof LoginUser loginUser) {
             operLog.setUserId(loginUser.getId());
             operLog.setUsername(loginUser.getUsername());
+        } else {
+            // 登录等认证尚未建立的场景：从入参 DTO 回退取 username，保证审计日志可追溯操作人
+            for (Object arg : joinPoint.getArgs()) {
+                if (arg == null) {
+                    continue;
+                }
+                try {
+                    Object uname = arg.getClass().getMethod("getUsername").invoke(arg);
+                    if (uname != null && !uname.toString().isEmpty()) {
+                        operLog.setUsername(uname.toString());
+                        break;
+                    }
+                } catch (NoSuchMethodException ignored) {
+                    // 入参无 getUsername 方法，继续检查下一个参数
+                } catch (Exception e) {
+                    log.warn("操作日志回退取username失败 paramType={}", arg.getClass().getSimpleName(), e);
+                    break;
+                }
+            }
         }
 
         ServletRequestAttributes attrs =

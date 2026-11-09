@@ -17,6 +17,7 @@ import com.smartwms.security.LoginUserLoader;
 import com.smartwms.system.dto.LoginDTO;
 import com.smartwms.system.dto.LogoutDTO;
 import com.smartwms.system.dto.RefreshDTO;
+import com.smartwms.system.dto.RegisterDTO;
 import com.smartwms.system.mapper.SysDeptMapper;
 import com.smartwms.system.mapper.SysMenuMapper;
 import com.smartwms.system.mapper.SysRoleMapper;
@@ -54,6 +55,9 @@ public class AuthServiceImpl implements AuthService, LoginUserLoader {
     /** 数据仓库权限不受限的角色（待确认口径见 API 文档 14.2/14.4 注记） */
     private static final Set<String> UNRESTRICTED_ROLES = Set.of("ROLE_ADMIN", "ROLE_VIEWER");
 
+    /** 默认启用的注册角色（公开注册账号的初始角色，绑定失败不阻断注册） */
+    private static final String REGISTER_ROLE_KEY = "ROLE_OPERATOR";
+
     private final SysUserMapper userMapper;
     private final SysRoleMapper roleMapper;
     private final SysMenuMapper menuMapper;
@@ -63,6 +67,40 @@ public class AuthServiceImpl implements AuthService, LoginUserLoader {
     private final WarehouseMapper warehouseMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void register(RegisterDTO dto) {
+        // username 唯一：先查重（并发场景由 uk_sys_user_username 唯一约束兜底 → 40904）
+        Long exists = userMapper.selectCount(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, dto.getUsername()));
+        if (exists != null && exists > 0) {
+            throw new BizException(ResultCode.CODE_EXISTS, "账号已存在");
+        }
+
+        SysUser user = new SysUser();
+        user.setUsername(dto.getUsername());
+        user.setPassword(passwordEncoder.encode(dto.getPassword()));
+        user.setRealName(dto.getRealName());
+        user.setPhone(dto.getPhone() == null || dto.getPhone().isEmpty() ? null : dto.getPhone());
+        user.setStatus(1);
+        userMapper.insert(user);
+
+        // 绑定默认角色（单事务整体提交；角色数据缺失属环境配置问题，仅告警不回滚注册）
+        SysRole defaultRole = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
+                .eq(SysRole::getRoleKey, REGISTER_ROLE_KEY)
+                .eq(SysRole::getStatus, 1));
+        if (defaultRole == null) {
+            log.warn("注册默认角色缺失 roleKey={}，新账号未绑定角色 username={}", REGISTER_ROLE_KEY, dto.getUsername());
+        } else {
+            SysUserRole userRole = new SysUserRole();
+            userRole.setUserId(user.getId());
+            userRole.setRoleId(defaultRole.getId());
+            userRoleMapper.insert(userRole);
+        }
+        log.info("用户注册成功 username={}, realName={}, roleId={}", dto.getUsername(),
+                dto.getRealName(), defaultRole == null ? null : defaultRole.getId());
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)

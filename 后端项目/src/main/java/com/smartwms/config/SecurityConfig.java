@@ -20,7 +20,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 /**
  * Spring Security 过滤器链配置（《系统安全架构设计》第 2 节）：
- * - 免认证白名单仅 2 个：POST /api/auth/login、POST /api/auth/refresh；
+ * - 免认证白名单仅 3 个：POST /api/auth/login、POST /api/auth/refresh、POST /api/auth/register；
  * - 其余全部接口需 JWT 认证（401 统一 JSON 信封）；无权限 403 → 40301；
  * - 无状态会话（JWT），禁用 CSRF。
  */
@@ -38,7 +38,8 @@ public class SecurityConfig {
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/refresh",
+                                "/api/auth/register").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(this::writeUnauthorized)
