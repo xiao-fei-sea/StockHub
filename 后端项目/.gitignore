@@ -1,0 +1,19 @@
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+logs/
+*.log
+
+# 敏感配置，禁止入库
+application-local.yml
+*.env

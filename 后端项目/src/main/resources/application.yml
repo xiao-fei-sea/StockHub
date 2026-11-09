@@ -1,0 +1,46 @@
+# 智仓云 SmartWMS 主配置（环境差异见 application-dev.yml / application-prod.yml）
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: smartwms-backend
+  profiles:
+    active: dev
+  datasource:
+    # 数据库连接（生产环境通过环境变量注入，禁止在仓库中写明文密码）
+    url: ${DB_URL:jdbc:mysql://localhost:3306/smartwms?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/*.xml
+  type-aliases-package: com.smartwms.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# JWT 配置（生产环境必须通过环境变量覆盖 JWT_SECRET）
+smartwms:
+  jwt:
+    secret: ${JWT_SECRET:SmartWMS-Dev-Secret-Key-Please-Change-In-Production-2026}
+    access-token-expire-seconds: 7200      # 2 小时
+    refresh-token-expire-seconds: 604800   # 7 天
+
+logging:
+  level:
+    root: INFO
+    com.smartwms: DEBUG
