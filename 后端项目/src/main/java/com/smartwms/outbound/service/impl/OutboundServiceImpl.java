@@ -476,6 +476,7 @@ public class OutboundServiceImpl implements OutboundService {
 
         return StockFlowVO.builder()
                 .flowNo(flowNo)
+                .warehouseId(order.getWarehouseId())
                 .productId(product.getId())
                 .batchId(inv.getBatchId())
                 .locationId(inv.getLocationId())

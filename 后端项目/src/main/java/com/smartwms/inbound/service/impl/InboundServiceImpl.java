@@ -400,6 +400,7 @@ public class InboundServiceImpl implements InboundService {
 
         return StockFlowVO.builder()
                 .flowNo(flowNo)
+                .warehouseId(order.getWarehouseId())
                 .productId(product.getId())
                 .batchId(batch.getId())
                 .locationId(item.getLocationId())
@@ -471,6 +472,7 @@ public class InboundServiceImpl implements InboundService {
                 .orderByAsc(StockFlow::getId)).stream()
                 .map(f -> StockFlowVO.builder()
                         .flowNo(f.getFlowNo())
+                        .warehouseId(f.getWarehouseId())
                         .productId(f.getProductId())
                         .batchId(f.getBatchId())
                         .locationId(f.getLocationId())

@@ -528,6 +528,7 @@ public class StocktakeServiceImpl implements StocktakeService {
 
         return List.of(StockFlowVO.builder()
                 .flowNo(flowNo)
+                .warehouseId(order.getWarehouseId())
                 .productId(item.getProductId())
                 .batchId(item.getBatchId())
                 .locationId(item.getLocationId())

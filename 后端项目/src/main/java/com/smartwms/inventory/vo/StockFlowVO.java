@@ -14,6 +14,8 @@ import java.time.LocalDateTime;
 public class StockFlowVO {
 
     private String flowNo;
+    /** 发生仓库（调拨等跨仓流水用于区分源/目标仓，接口文档示例包含该字段） */
+    private Long warehouseId;
     private Long productId;
     private Long batchId;
     private Long locationId;
