@@ -25,6 +25,8 @@ public class SysOperLog {
     private String requestUrl;
     /** 请求参数（敏感字段已脱敏） */
     private String requestParams;
+    /** 响应结果摘要（敏感字段脱敏、超长 2000 截断，仅失败详情/审计追溯用） */
+    private String responseResult;
     private Integer status;
     private String errorMsg;
     private String ip;

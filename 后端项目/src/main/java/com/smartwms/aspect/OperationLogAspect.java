@@ -41,6 +41,7 @@ public class OperationLogAspect {
         try {
             Object result = joinPoint.proceed();
             operLog.setStatus(1);
+            operLog.setResponseResult(maskResponse(result));
             return result;
         } catch (Throwable e) {
             operLog.setStatus(0);
@@ -96,6 +97,18 @@ public class OperationLogAspect {
             operLog.setRequestParams(truncate(maskParams(joinPoint.getArgs()), 2000));
         }
         return operLog;
+    }
+
+    /** 响应序列化 + 脱敏 + 截断（2000，与 requestParams 一致；失败不影响主流程）。 */
+    private String maskResponse(Object result) {
+        if (result == null) {
+            return null;
+        }
+        try {
+            return truncate(SensitiveUtil.maskJson(objectMapper.writeValueAsString(result)), 2000);
+        } catch (Exception e) {
+            return "[序列化失败]";
+        }
     }
 
     /** 参数序列化 + 脱敏；跳过 request/response/file 等非业务对象。 */
