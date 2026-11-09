@@ -21,6 +21,8 @@ public class SysRole {
     private Integer roleSort;
     /** 状态：0 停用 / 1 启用 */
     private Integer status;
+    /** 备注 */
+    private String remark;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Long createBy;
