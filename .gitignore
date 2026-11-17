@@ -5,13 +5,13 @@
 !/.gitignore
 
 # 只保留前后端项目文件夹
-!/后端项目/
-!/前端项目/
+!/WmsCore/
+!/front/
 
 # 忽略前后端项目内的构建产物、依赖和日志
-后端项目/target/
-后端项目/logs/
-后端项目/*.log
-前端项目/node_modules/
-前端项目/dist/
-前端项目/*.log
+WmsCore/target/
+WmsCore/logs/
+WmsCore/*.log
+front/node_modules/
+front/dist/
+front/*.log
