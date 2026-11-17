@@ -1,0 +1,787 @@
+
+-- ---------------------------------------------------------------------
+-- 一、系统权限表（sys_ 前缀，8 张）
+-- ---------------------------------------------------------------------
+
+-- 1. sys_user 用户表
+CREATE TABLE IF NOT EXISTS sys_user (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    username    VARCHAR(50)  NOT NULL COMMENT '登录账号',
+    password    VARCHAR(100) NOT NULL COMMENT '登录密码（BCrypt 哈希）',
+    real_name   VARCHAR(50)  DEFAULT NULL COMMENT '真实姓名',
+    phone       VARCHAR(20)  DEFAULT NULL COMMENT '手机号',
+    email       VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
+    dept_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '所属部门ID（sys_dept.id，逻辑外键）',
+    status      TINYINT      NOT NULL DEFAULT 1 COMMENT '账号状态：0停用/1正常',
+    login_date  DATETIME     DEFAULT NULL COMMENT '最近登录时间',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_sys_user_username (username),
+    KEY idx_sys_user_dept (dept_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '系统用户表';
+
+-- 2. sys_role 角色表
+CREATE TABLE IF NOT EXISTS sys_role (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    role_name   VARCHAR(50)  NOT NULL COMMENT '角色名称',
+    role_key    VARCHAR(50)  NOT NULL COMMENT '角色标识（如 ROLE_ADMIN）',
+    role_sort   INT          NOT NULL DEFAULT 0 COMMENT '显示顺序',
+    status      TINYINT      NOT NULL DEFAULT 1 COMMENT '角色状态：0停用/1正常',
+    remark      VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_sys_role_key (role_key)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '角色表';
+
+-- 3. sys_menu 菜单权限表（目录/菜单/按钮三级）
+CREATE TABLE IF NOT EXISTS sys_menu (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    parent_id   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '父菜单ID（根节点为0）',
+    menu_name   VARCHAR(50)  NOT NULL COMMENT '菜单名称',
+    menu_type   CHAR(1)      NOT NULL DEFAULT 'M' COMMENT '菜单类型：C目录/M菜单/B按钮',
+    perms       VARCHAR(100) DEFAULT NULL COMMENT '权限标识（如 sys:user:add；目录可为空）',
+    path        VARCHAR(200) DEFAULT NULL COMMENT '路由路径（按钮为空）',
+    component   VARCHAR(200) DEFAULT NULL COMMENT '前端组件路径（目录/按钮为空）',
+    icon        VARCHAR(100) DEFAULT NULL COMMENT '菜单图标',
+    sort        INT          NOT NULL DEFAULT 0 COMMENT '显示顺序',
+    visible     TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否可见：0隐藏/1显示',
+    status      TINYINT      NOT NULL DEFAULT 1 COMMENT '菜单状态：0停用/1正常',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    KEY idx_sys_menu_parent (parent_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '菜单权限表（含目录、页面菜单与按钮权限）';
+
+-- 4. sys_dept 部门表
+CREATE TABLE IF NOT EXISTS sys_dept (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    parent_id   BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '父部门ID（根节点为0）',
+    dept_name   VARCHAR(50)  NOT NULL COMMENT '部门名称',
+    sort        INT          NOT NULL DEFAULT 0 COMMENT '显示顺序',
+    ancestors   VARCHAR(500) DEFAULT NULL COMMENT '祖级列表（如 0,1,2，逗号分隔）',
+    status      TINYINT      NOT NULL DEFAULT 1 COMMENT '部门状态：0停用/1正常',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    KEY idx_sys_dept_parent (parent_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '部门表（组织架构展示与数据权限辅助）';
+
+-- 5. sys_user_role 用户角色关联表
+CREATE TABLE IF NOT EXISTS sys_user_role (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    user_id     BIGINT UNSIGNED NOT NULL COMMENT '用户ID（sys_user.id）',
+    role_id     BIGINT UNSIGNED NOT NULL COMMENT '角色ID（sys_role.id）',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_role (user_id, role_id),
+    KEY idx_user_role_role (role_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '用户角色关联表';
+
+-- 6. sys_role_menu 角色菜单关联表
+CREATE TABLE IF NOT EXISTS sys_role_menu (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    role_id     BIGINT UNSIGNED NOT NULL COMMENT '角色ID（sys_role.id）',
+    menu_id     BIGINT UNSIGNED NOT NULL COMMENT '菜单ID（sys_menu.id）',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_role_menu (role_id, menu_id),
+    KEY idx_role_menu_menu (menu_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '角色菜单关联表（菜单与按钮权限分配）';
+
+-- 7. sys_user_warehouse 用户仓库数据权限关联表
+CREATE TABLE IF NOT EXISTS sys_user_warehouse (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    user_id       BIGINT UNSIGNED NOT NULL COMMENT '用户ID（sys_user.id）',
+    warehouse_id  BIGINT UNSIGNED NOT NULL COMMENT '仓库ID（warehouse.id）',
+    create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_warehouse (user_id, warehouse_id),
+    KEY idx_user_warehouse_wh (warehouse_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '用户仓库数据权限关联表（数据范围=所属仓库；admin与数据分析员不受限）';
+
+-- 8. sys_oper_log 操作日志表
+CREATE TABLE IF NOT EXISTS sys_oper_log (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    module          VARCHAR(50)   DEFAULT NULL COMMENT '操作模块',
+    title           VARCHAR(100)  DEFAULT NULL COMMENT '操作标题',
+    method          VARCHAR(200)  DEFAULT NULL COMMENT '后端方法名（类#方法）',
+    request_method  VARCHAR(10)   DEFAULT NULL COMMENT '请求方法（GET/POST/PUT/DELETE）',
+    request_url     VARCHAR(255)  DEFAULT NULL COMMENT '请求URL',
+    request_params  TEXT COMMENT '请求参数（已脱敏）',
+    response_result TEXT COMMENT '响应结果（已脱敏/截断）',
+    status          TINYINT       NOT NULL DEFAULT 1 COMMENT '操作状态：0失败/1成功',
+    error_msg       TEXT COMMENT '错误信息',
+    ip              VARCHAR(50)   DEFAULT NULL COMMENT '操作IP地址',
+    user_id         BIGINT UNSIGNED DEFAULT NULL COMMENT '操作人ID（sys_user.id）',
+    username        VARCHAR(50)   DEFAULT NULL COMMENT '操作人账号',
+    cost_time       INT           DEFAULT NULL COMMENT '耗时（毫秒）',
+    oper_time       DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    create_time     DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    KEY idx_sys_oper_log_user (user_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '操作日志表（登录、增删改、审核、过账等关键操作记录）';
+
+-- ---------------------------------------------------------------------
+-- 二、基础资料表（8 张）
+-- ---------------------------------------------------------------------
+
+-- 9. warehouse 仓库表
+CREATE TABLE IF NOT EXISTS warehouse (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    warehouse_code VARCHAR(50)  NOT NULL COMMENT '仓库编码（规则：WH-+自定义编号）',
+    warehouse_name VARCHAR(100) NOT NULL COMMENT '仓库名称',
+    address       VARCHAR(255) DEFAULT NULL COMMENT '仓库地址',
+    contact_name  VARCHAR(50)  DEFAULT NULL COMMENT '联系人姓名',
+    contact_phone VARCHAR(20)  DEFAULT NULL COMMENT '联系人电话',
+    area_size     DECIMAL(12,2) DEFAULT NULL COMMENT '仓库面积（平方米）',
+    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '仓库状态：0停用/1正常',
+    sort          INT          NOT NULL DEFAULT 0 COMMENT '显示顺序',
+    remark        VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_warehouse_code (warehouse_code)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '仓库表';
+
+-- 10. storage_area 库区表（四级结构第 2 级）
+CREATE TABLE IF NOT EXISTS storage_area (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    warehouse_id BIGINT UNSIGNED NOT NULL COMMENT '所属仓库ID（warehouse.id，逻辑外键）',
+    area_code    VARCHAR(50)  NOT NULL COMMENT '库区编码（规则：QY-+自定义编号）',
+    area_name    VARCHAR(100) NOT NULL COMMENT '库区名称',
+    area_type    TINYINT      NOT NULL DEFAULT 1 COMMENT '库区类型：1存储区/2拣货区/3暂存区',
+    status       TINYINT      NOT NULL DEFAULT 1 COMMENT '库区状态：0停用/1正常',
+    create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_area_code (warehouse_id, area_code),
+    KEY idx_area_warehouse (warehouse_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库区表（仓库→库区→货架→货位 四级结构第2级）';
+
+-- 11. rack 货架表（四级结构第 3 级）
+CREATE TABLE IF NOT EXISTS rack (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    warehouse_id  BIGINT UNSIGNED NOT NULL COMMENT '所属仓库ID（warehouse.id，逻辑外键）',
+    area_id       BIGINT UNSIGNED NOT NULL COMMENT '所属库区ID（storage_area.id，逻辑外键）',
+    rack_code     VARCHAR(50)  NOT NULL COMMENT '货架编码（规则：JH-+自定义编号）',
+    rack_name     VARCHAR(100) NOT NULL COMMENT '货架名称',
+    floor_count   INT          NOT NULL DEFAULT 1 COMMENT '货架层数',
+    column_count  INT          NOT NULL DEFAULT 1 COMMENT '货架列数',
+    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '货架状态：0停用/1正常',
+    create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_rack_code (area_id, rack_code),
+    KEY idx_rack_warehouse (warehouse_id),
+    KEY idx_rack_area (area_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '货架表（仓库→库区→货架→货位 四级结构第3级）';
+
+-- 12. location 货位表（四级结构第 4 级）
+CREATE TABLE IF NOT EXISTS location (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    warehouse_id    BIGINT UNSIGNED NOT NULL COMMENT '所属仓库ID（warehouse.id，逻辑外键）',
+    area_id         BIGINT UNSIGNED NOT NULL COMMENT '所属库区ID（storage_area.id，逻辑外键）',
+    rack_id         BIGINT UNSIGNED NOT NULL COMMENT '所属货架ID（rack.id，逻辑外键）',
+    location_code   VARCHAR(50)  NOT NULL COMMENT '货位编码（规则：HW-+自定义编号，全局唯一）',
+    location_name   VARCHAR(100) NOT NULL COMMENT '货位名称',
+    location_type   TINYINT      NOT NULL DEFAULT 1 COMMENT '货位类型：1存储位/2拣货位/3暂存位/4收货位',
+    capacity_volume DECIMAL(12,3) DEFAULT NULL COMMENT '货位容量体积（立方米）',
+    current_status  TINYINT      NOT NULL DEFAULT 1 COMMENT '货位状态：1空闲/2占用/3锁定/4禁用',
+    sort            INT          NOT NULL DEFAULT 0 COMMENT '显示顺序',
+    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '启用状态：0停用/1正常',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_location_code (location_code),
+    KEY idx_location_warehouse (warehouse_id),
+    KEY idx_location_area (area_id),
+    KEY idx_location_rack (rack_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '货位表（仓库→库区→货架→货位 四级结构第4级，库存最小管理单元）';
+
+-- 13. product_category 商品分类表
+CREATE TABLE IF NOT EXISTS product_category (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    parent_id     BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '父分类ID（根节点为0）',
+    category_code VARCHAR(50)  NOT NULL COMMENT '分类编码（规则：FL-+自定义编号）',
+    category_name VARCHAR(100) NOT NULL COMMENT '分类名称',
+    level         INT          NOT NULL DEFAULT 1 COMMENT '分类层级（1为一级）',
+    sort          INT          NOT NULL DEFAULT 0 COMMENT '显示顺序',
+    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '分类状态：0停用/1正常',
+    create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_category_code (category_code),
+    KEY idx_category_parent (parent_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '商品分类表';
+
+-- 14. product 商品信息表
+CREATE TABLE IF NOT EXISTS product (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    product_code    VARCHAR(50)  NOT NULL COMMENT '商品编码（规则：P-+自定义编号）',
+    product_name    VARCHAR(200) NOT NULL COMMENT '商品名称',
+    category_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '商品分类ID（product_category.id，逻辑外键）',
+    brand           VARCHAR(100) DEFAULT NULL COMMENT '品牌',
+    unit            VARCHAR(20)  DEFAULT NULL COMMENT '基本单位',
+    spec            VARCHAR(100) DEFAULT NULL COMMENT '规格型号',
+    weight          DECIMAL(10,3) DEFAULT NULL COMMENT '重量（千克）',
+    volume          DECIMAL(10,3) DEFAULT NULL COMMENT '体积（立方米）',
+    shelf_life_flag TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否保质期管理：0否/1是',
+    shelf_life_days INT          DEFAULT NULL COMMENT '保质期天数（shelf_life_flag=1 时有效）',
+    batch_flag      TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否批次管理：0否/1是（默认1；0时批次号自动生成为DEFAULT）',
+    min_stock       DECIMAL(12,3) DEFAULT NULL COMMENT '最低安全库存（数量）',
+    max_stock       DECIMAL(12,3) DEFAULT NULL COMMENT '最高库存上限（数量）',
+    price           DECIMAL(12,2) DEFAULT NULL COMMENT '参考采购价（金额）',
+    image_url       VARCHAR(255) DEFAULT NULL COMMENT '商品图片地址',
+    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '商品状态：0停用/1上架',
+    remark          VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_product_code (product_code),
+    KEY idx_product_category (category_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '商品信息表';
+
+-- 15. supplier 供应商表
+CREATE TABLE IF NOT EXISTS supplier (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    supplier_code VARCHAR(50)  NOT NULL COMMENT '供应商编码（规则：S-+自定义编号）',
+    supplier_name VARCHAR(100) NOT NULL COMMENT '供应商名称',
+    contact_name  VARCHAR(50)  DEFAULT NULL COMMENT '联系人姓名',
+    contact_phone VARCHAR(20)  DEFAULT NULL COMMENT '联系人电话',
+    email         VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
+    address       VARCHAR(255) DEFAULT NULL COMMENT '地址',
+    bank_info     VARCHAR(255) DEFAULT NULL COMMENT '开户行及账号',
+    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '供应商状态：0停用/1合作中',
+    remark        VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_supplier_code (supplier_code)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '供应商表';
+
+-- 16. customer 客户表
+CREATE TABLE IF NOT EXISTS customer (
+    id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    customer_code VARCHAR(50)  NOT NULL COMMENT '客户编码（规则：C-+自定义编号）',
+    customer_name VARCHAR(100) NOT NULL COMMENT '客户名称',
+    contact_name  VARCHAR(50)  DEFAULT NULL COMMENT '联系人姓名',
+    contact_phone VARCHAR(20)  DEFAULT NULL COMMENT '联系人电话',
+    email         VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
+    address       VARCHAR(255) DEFAULT NULL COMMENT '地址',
+    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '客户状态：0停用/1合作中',
+    remark        VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by     BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted       TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_customer_code (customer_code)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '客户表';
+
+-- ---------------------------------------------------------------------
+-- 三、单据表（4 主表 + 4 明细表，8 张）
+-- 单据 status 统一状态机（基线第 7 节）：
+--   0草稿/1待审核/2已审核/3已完成(已过账)/4已驳回/5已取消
+-- 单据不做逻辑删除（deleted 恒为 0），仅草稿可物理删除；version 为乐观锁。
+-- ---------------------------------------------------------------------
+
+-- 17. inbound_order 入库单主表
+CREATE TABLE IF NOT EXISTS inbound_order (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    inbound_no      VARCHAR(50)  NOT NULL COMMENT '入库单号（规则：RK+yyyyMMdd+3位序号）',
+    order_type      TINYINT      NOT NULL DEFAULT 1 COMMENT '入库类型：1采购入库/2调拨入库/3退货入库/4盘盈入库',
+    supplier_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '供应商ID（supplier.id，逻辑外键）',
+    source_order_no VARCHAR(50)  DEFAULT NULL COMMENT '来源单号（采购单等）',
+    expect_date     DATE         DEFAULT NULL COMMENT '预计入库日期',
+    status          TINYINT      NOT NULL DEFAULT 0 COMMENT '单据状态：0草稿/1待审核/2已审核/3已完成/4已驳回/5已取消',
+    auditor_id      BIGINT UNSIGNED DEFAULT NULL COMMENT '审核人ID（sys_user.id）',
+    audit_time      DATETIME     DEFAULT NULL COMMENT '审核时间',
+    poster_id       BIGINT UNSIGNED DEFAULT NULL COMMENT '过账人ID（sys_user.id）',
+    post_time       DATETIME     DEFAULT NULL COMMENT '过账时间',
+    total_qty       DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '计划总数量',
+    actual_qty      DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '实收总数量',
+    warehouse_id    BIGINT UNSIGNED NOT NULL COMMENT '入库仓库ID（warehouse.id，逻辑外键）',
+    remark          VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    version         INT          NOT NULL DEFAULT 1 COMMENT '乐观锁版本号',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_inbound_no (inbound_no),
+    KEY idx_inbound_warehouse (warehouse_id),
+    KEY idx_inbound_supplier (supplier_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '入库单主表';
+
+-- 18. inbound_order_item 入库单明细表
+CREATE TABLE IF NOT EXISTS inbound_order_item (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    order_id        BIGINT UNSIGNED NOT NULL COMMENT '入库单主表ID（inbound_order.id，逻辑外键）',
+    line_no         INT          NOT NULL COMMENT '行号',
+    product_id      BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    location_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '目标货位ID（location.id，逻辑外键）',
+    batch_no        VARCHAR(50)  DEFAULT NULL COMMENT '批次号（batch_flag=0 自动生成 DEFAULT）',
+    production_date DATE         DEFAULT NULL COMMENT '生产日期（仅保质期商品）',
+    expiry_date     DATE         DEFAULT NULL COMMENT '过期日期（仅保质期商品）',
+    plan_qty        DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '计划数量',
+    actual_qty      DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '实收数量',
+    unit            VARCHAR(20)  DEFAULT NULL COMMENT '单位',
+    remark          VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    KEY idx_inbound_item_order (order_id),
+    KEY idx_inbound_item_product (product_id),
+    KEY idx_inbound_item_location (location_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '入库单明细表';
+
+-- 19. outbound_order 出库单主表
+CREATE TABLE IF NOT EXISTS outbound_order (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    outbound_no     VARCHAR(50)  NOT NULL COMMENT '出库单号（规则：CK+yyyyMMdd+3位序号）',
+    order_type      TINYINT      NOT NULL DEFAULT 1 COMMENT '出库类型：1销售出库/2调拨出库/3退货出库/4报损出库',
+    customer_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '客户ID（customer.id，逻辑外键）',
+    source_order_no VARCHAR(50)  DEFAULT NULL COMMENT '来源单号（销售订单等）',
+    expect_date     DATE         DEFAULT NULL COMMENT '预计出库日期',
+    status          TINYINT      NOT NULL DEFAULT 0 COMMENT '单据状态：0草稿/1待审核/2已审核/3已完成/4已驳回/5已取消',
+    auditor_id      BIGINT UNSIGNED DEFAULT NULL COMMENT '审核人ID（sys_user.id）',
+    audit_time      DATETIME     DEFAULT NULL COMMENT '审核时间',
+    poster_id       BIGINT UNSIGNED DEFAULT NULL COMMENT '过账人ID（sys_user.id）',
+    post_time       DATETIME     DEFAULT NULL COMMENT '过账时间',
+    warehouse_id    BIGINT UNSIGNED NOT NULL COMMENT '出库仓库ID（warehouse.id，逻辑外键）',
+    total_qty       DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '计划总数量',
+    pick_user_id    BIGINT UNSIGNED DEFAULT NULL COMMENT '拣货人ID（sys_user.id）',
+    remark          VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    version         INT          NOT NULL DEFAULT 1 COMMENT '乐观锁版本号',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_outbound_no (outbound_no),
+    KEY idx_outbound_warehouse (warehouse_id),
+    KEY idx_outbound_customer (customer_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '出库单主表';
+
+-- 20. outbound_order_item 出库单明细表
+CREATE TABLE IF NOT EXISTS outbound_order_item (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    order_id     BIGINT UNSIGNED NOT NULL COMMENT '出库单主表ID（outbound_order.id，逻辑外键）',
+    line_no      INT          NOT NULL COMMENT '行号',
+    product_id   BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    batch_no     VARCHAR(50)  DEFAULT NULL COMMENT '批次号（过账时按FIFO分配，可空）',
+    batch_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '实际占用批次ID（inventory_batch.id，过账时分配）',
+    location_id  BIGINT UNSIGNED DEFAULT NULL COMMENT '出库货位ID（location.id，过账时分配）',
+    plan_qty     DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '计划数量',
+    actual_qty   DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '实发数量',
+    unit         VARCHAR(20)  DEFAULT NULL COMMENT '单位',
+    remark       VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    KEY idx_outbound_item_order (order_id),
+    KEY idx_outbound_item_product (product_id),
+    KEY idx_outbound_item_batch (batch_id),
+    KEY idx_outbound_item_location (location_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '出库单明细表';
+
+-- ---------------------------------------------------------------------
+-- 四、库存表（3 张）
+-- 库存与流水不做逻辑删除（deleted 恒为 0）。
+-- ---------------------------------------------------------------------
+
+-- 21. inventory_batch 库存批次表
+CREATE TABLE IF NOT EXISTS inventory_batch (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    batch_no        VARCHAR(50)  NOT NULL COMMENT '批次号（batch_flag=0 的商品统一为 DEFAULT）',
+    product_id      BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    warehouse_id    BIGINT UNSIGNED NOT NULL COMMENT '仓库ID（warehouse.id，逻辑外键）',
+    production_date DATE         DEFAULT NULL COMMENT '生产日期',
+    expiry_date     DATE         DEFAULT NULL COMMENT '过期日期',
+    supplier_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '供应商ID（supplier.id，逻辑外键）',
+    inbound_no      VARCHAR(50)  DEFAULT NULL COMMENT '首次入库单号（期初批次可为空）',
+    batch_status    TINYINT      NOT NULL DEFAULT 1 COMMENT '批次状态：1正常/2冻结/3用尽',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（库存不做逻辑删除）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_batch (product_id, warehouse_id, batch_no),
+    KEY idx_batch_warehouse (warehouse_id),
+    KEY idx_batch_supplier (supplier_id),
+    KEY idx_batch_inbound_no (inbound_no)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存批次表（入库过账时按 product_id+warehouse_id+batch_no 创建或复用）';
+
+-- 22. inventory 库存表（warehouse_id 为强制维度，多仓库隔离）
+CREATE TABLE IF NOT EXISTS inventory (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    warehouse_id BIGINT UNSIGNED NOT NULL COMMENT '仓库ID（warehouse.id，逻辑外键，多仓库隔离强制维度）',
+    location_id  BIGINT UNSIGNED NOT NULL COMMENT '货位ID（location.id，逻辑外键）',
+    product_id   BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    batch_id     BIGINT UNSIGNED NOT NULL COMMENT '批次ID（inventory_batch.id，逻辑外键）',
+    qty          DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '当前库存数量（不得为负）',
+    lock_qty     DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '预留锁定数量（默认0）',
+    version      INT          NOT NULL DEFAULT 1 COMMENT '乐观锁版本号（过账并发控制）',
+    create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（库存不做逻辑删除）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_inventory (warehouse_id, location_id, product_id, batch_id),
+    KEY idx_inventory_location (location_id),
+    KEY idx_inventory_product (product_id),
+    KEY idx_inventory_batch (batch_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存表（唯一键含仓库维度，保证多仓库隔离；warehouse_id 前缀索引由唯一键覆盖）';
+
+-- 23. stock_flow 库存变动流水表（期初 + Σ流水 = 当前库存，可追溯）
+CREATE TABLE IF NOT EXISTS stock_flow (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    flow_no      VARCHAR(50)  NOT NULL COMMENT '流水号（规则：LS+yyyyMMdd+5位序号）',
+    warehouse_id BIGINT UNSIGNED NOT NULL COMMENT '仓库ID（warehouse.id，逻辑外键）',
+    product_id   BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    batch_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '批次ID（inventory_batch.id，逻辑外键）',
+    location_id  BIGINT UNSIGNED DEFAULT NULL COMMENT '货位ID（location.id，逻辑外键）',
+    direction    CHAR(2)      NOT NULL COMMENT '变动方向：IN入库/OUT出库',
+    qty          DECIMAL(12,3) NOT NULL COMMENT '本次变动数量',
+    before_qty   DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '变动前库存',
+    after_qty    DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '变动后库存',
+    flow_type    TINYINT      NOT NULL COMMENT '流水类型：1入库/2出库/3调拨入/4调拨出/5盘盈/6盘亏/7调整',
+    ref_type     VARCHAR(20)  DEFAULT NULL COMMENT '关联单据类型（INBOUND/OUTBOUND/TRANSFER/STOCKTAKE/ADJUST/INIT期初）',
+    ref_id       BIGINT UNSIGNED DEFAULT NULL COMMENT '关联单据ID（逻辑外键）',
+    ref_no       VARCHAR(50)  DEFAULT NULL COMMENT '关联单号',
+    operator_id  BIGINT UNSIGNED DEFAULT NULL COMMENT '操作人ID（sys_user.id）',
+    oper_time    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by    BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（流水不做逻辑删除）',
+    PRIMARY KEY (id),
+    KEY idx_flow_flow_no (flow_no),
+    KEY idx_flow_warehouse (warehouse_id),
+    KEY idx_flow_product (product_id),
+    KEY idx_flow_batch (batch_id),
+    KEY idx_flow_location (location_id),
+    KEY idx_flow_ref_id (ref_id),
+    KEY idx_flow_ref_no (ref_no)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存变动流水表（所有库存变动必须产生流水，before/after 可追溯）';
+
+-- ---------------------------------------------------------------------
+-- 五、盘点与调拨表（4 张）
+-- ---------------------------------------------------------------------
+
+-- 24. stocktake_order 盘点单主表
+CREATE TABLE IF NOT EXISTS stocktake_order (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    stocktake_no      VARCHAR(50)  NOT NULL COMMENT '盘点单号（规则：PD+yyyyMMdd+3位序号）',
+    warehouse_id      BIGINT UNSIGNED NOT NULL COMMENT '盘点仓库ID（warehouse.id，逻辑外键）',
+    area_id           BIGINT UNSIGNED DEFAULT NULL COMMENT '盘点库区ID（storage_area.id，全仓盘点为空）',
+    status            TINYINT      NOT NULL DEFAULT 0 COMMENT '单据状态：0草稿/1待审核/2已审核/3已完成/4已驳回/5已取消',
+    diff_status       TINYINT      NOT NULL DEFAULT 0 COMMENT '差异处理状态：0未处理/1已处理',
+    scope             TINYINT      NOT NULL DEFAULT 1 COMMENT '盘点范围：1按库区/2按仓库',
+    auditor_id        BIGINT UNSIGNED DEFAULT NULL COMMENT '审核人ID（sys_user.id）',
+    audit_time        DATETIME     DEFAULT NULL COMMENT '审核时间',
+    poster_id         BIGINT UNSIGNED DEFAULT NULL COMMENT '过账人ID（sys_user.id）',
+    post_time         DATETIME     DEFAULT NULL COMMENT '过账时间',
+    total_differ_qty  DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '差异总数量（盘盈为正、盘亏为负）',
+    plan_date         DATE         DEFAULT NULL COMMENT '计划盘点日期',
+    finish_time       DATETIME     DEFAULT NULL COMMENT '完成时间',
+    remark            VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    version           INT          NOT NULL DEFAULT 1 COMMENT '乐观锁版本号',
+    create_time       DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by         BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by         BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted           TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_stocktake_no (stocktake_no),
+    KEY idx_stocktake_warehouse (warehouse_id),
+    KEY idx_stocktake_area (area_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存盘点单主表';
+
+-- 25. stocktake_order_item 盘点单明细表
+CREATE TABLE IF NOT EXISTS stocktake_order_item (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    order_id    BIGINT UNSIGNED NOT NULL COMMENT '盘点单主表ID（stocktake_order.id，逻辑外键）',
+    line_no     INT          NOT NULL COMMENT '行号',
+    location_id BIGINT UNSIGNED DEFAULT NULL COMMENT '盘点货位ID（location.id，逻辑外键）',
+    product_id  BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    batch_id    BIGINT UNSIGNED DEFAULT NULL COMMENT '批次ID（inventory_batch.id，逻辑外键）',
+    book_qty    DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '账面数量',
+    actual_qty  DECIMAL(12,3) DEFAULT NULL COMMENT '实盘数量（盘点录入，未录入为空）',
+    differ_qty  DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '差异数量（实盘-账面）',
+    diff_reason VARCHAR(200) DEFAULT NULL COMMENT '差异原因',
+    status      TINYINT      NOT NULL DEFAULT 0 COMMENT '明细状态：0差异已确认/1无需处理',
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by   BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    KEY idx_stocktake_item_order (order_id),
+    KEY idx_stocktake_item_location (location_id),
+    KEY idx_stocktake_item_product (product_id),
+    KEY idx_stocktake_item_batch (batch_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存盘点单明细表';
+
+-- 26. transfer_order 调拨单主表
+CREATE TABLE IF NOT EXISTS transfer_order (
+    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    transfer_no      VARCHAR(50)  NOT NULL COMMENT '调拨单号（规则：DB+yyyyMMdd+3位序号）',
+    src_warehouse_id BIGINT UNSIGNED NOT NULL COMMENT '源仓库ID（warehouse.id，逻辑外键）',
+    dest_warehouse_id BIGINT UNSIGNED NOT NULL COMMENT '目标仓库ID（warehouse.id，逻辑外键）',
+    status           TINYINT      NOT NULL DEFAULT 0 COMMENT '单据状态：0草稿/1待审核/2已审核/3已完成/4已驳回/5已取消',
+    confirm_status   TINYINT      NOT NULL DEFAULT 0 COMMENT '目标仓确认状态：0未确认/1已确认',
+    auditor_id       BIGINT UNSIGNED DEFAULT NULL COMMENT '审核人ID（sys_user.id）',
+    audit_time       DATETIME     DEFAULT NULL COMMENT '审核时间',
+    poster_id        BIGINT UNSIGNED DEFAULT NULL COMMENT '过账人ID（sys_user.id）',
+    post_time        DATETIME     DEFAULT NULL COMMENT '过账时间',
+    total_qty        DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '调拨总数量',
+    remark           VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    version          INT          NOT NULL DEFAULT 1 COMMENT '乐观锁版本号',
+    create_time      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by        BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by        BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted          TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_transfer_no (transfer_no),
+    KEY idx_transfer_src_wh (src_warehouse_id),
+    KEY idx_transfer_dest_wh (dest_warehouse_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存调拨单主表（过账时源仓减、目标仓增，简化模型）';
+
+-- 27. transfer_order_item 调拨单明细表
+CREATE TABLE IF NOT EXISTS transfer_order_item (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    order_id          BIGINT UNSIGNED NOT NULL COMMENT '调拨单主表ID（transfer_order.id，逻辑外键）',
+    line_no           INT          NOT NULL COMMENT '行号',
+    product_id        BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    batch_id          BIGINT UNSIGNED DEFAULT NULL COMMENT '批次ID（inventory_batch.id，调拨沿用源仓批次）',
+    src_location_id   BIGINT UNSIGNED DEFAULT NULL COMMENT '源货位ID（location.id，逻辑外键）',
+    dest_location_id  BIGINT UNSIGNED DEFAULT NULL COMMENT '目标货位ID（location.id，逻辑外键）',
+    plan_qty          DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '计划调拨数量',
+    actual_qty        DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT '实际调拨数量',
+    remark            VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time       DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by         BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by         BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted           TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：恒为0（单据不做逻辑删除）',
+    PRIMARY KEY (id),
+    KEY idx_transfer_item_order (order_id),
+    KEY idx_transfer_item_product (product_id),
+    KEY idx_transfer_item_batch (batch_id),
+    KEY idx_transfer_item_src_loc (src_location_id),
+    KEY idx_transfer_item_dest_loc (dest_location_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存调拨单明细表';
+
+-- ---------------------------------------------------------------------
+-- 六、预警与其它（2 张）
+-- ---------------------------------------------------------------------
+
+-- 28. stock_alert_rule 库存预警规则表
+CREATE TABLE IF NOT EXISTS stock_alert_rule (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    rule_name       VARCHAR(100) NOT NULL COMMENT '规则名称',
+    warehouse_id    BIGINT UNSIGNED DEFAULT NULL COMMENT '仓库ID（warehouse.id，为空表示全部仓库）',
+    category_id     BIGINT UNSIGNED DEFAULT NULL COMMENT '商品分类ID（product_category.id，为空表示全部分类）',
+    product_id      BIGINT UNSIGNED DEFAULT NULL COMMENT '商品ID（product.id，为空表示全部商品）',
+    alert_type      TINYINT      NOT NULL COMMENT '预警类型：1低于下限LOW_STOCK/2高于上限HIGH_STOCK/3临近保质期NEAR_EXPIRY/4已过期EXPIRED',
+    threshold_value DECIMAL(12,3) DEFAULT NULL COMMENT '通用阈值（适用上下限或临近天数）',
+    near_days       INT          DEFAULT NULL COMMENT '临近保质期天数（alert_type=3 时有效）',
+    min_qty         DECIMAL(12,3) DEFAULT NULL COMMENT '库存下限（alert_type=1 时有效）',
+    max_qty         DECIMAL(12,3) DEFAULT NULL COMMENT '库存上限（alert_type=2 时有效）',
+    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '规则状态：0停用/1启用',
+    remark          VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    KEY idx_alert_rule_warehouse (warehouse_id),
+    KEY idx_alert_rule_category (category_id),
+    KEY idx_alert_rule_product (product_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存预警规则表（每日定时扫描规则，不实时拦截业务）';
+
+-- 29. stock_alert_record 库存预警记录表
+CREATE TABLE IF NOT EXISTS stock_alert_record (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    rule_id         BIGINT UNSIGNED DEFAULT NULL COMMENT '预警规则ID（stock_alert_rule.id，逻辑外键）',
+    alert_type      TINYINT      NOT NULL COMMENT '预警类型：1低于下限/2高于上限/3临近保质期/4已过期',
+    warehouse_id    BIGINT UNSIGNED NOT NULL COMMENT '仓库ID（warehouse.id，逻辑外键）',
+    product_id      BIGINT UNSIGNED NOT NULL COMMENT '商品ID（product.id，逻辑外键）',
+    batch_id        BIGINT UNSIGNED DEFAULT NULL COMMENT '批次ID（inventory_batch.id，可空）',
+    current_value   DECIMAL(12,3) DEFAULT NULL COMMENT '当前值（当前库存或距过期天数）',
+    threshold_value DECIMAL(12,3) DEFAULT NULL COMMENT '阈值',
+    level           TINYINT      NOT NULL DEFAULT 1 COMMENT '预警级别：1提示/2警告/3严重',
+    status          TINYINT      NOT NULL DEFAULT 0 COMMENT '处理状态：0未处理/1已处理',
+    handle_remark   VARCHAR(500) DEFAULT NULL COMMENT '处理说明',
+    handle_user     BIGINT UNSIGNED DEFAULT NULL COMMENT '处理人ID（sys_user.id）',
+    handle_time     DATETIME     DEFAULT NULL COMMENT '处理时间',
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID（sys_user.id）',
+    update_by       BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID（sys_user.id）',
+    deleted         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除标记：0未删除/1已删除',
+    PRIMARY KEY (id),
+    KEY idx_alert_record_rule (rule_id),
+    KEY idx_alert_record_warehouse (warehouse_id),
+    KEY idx_alert_record_product (product_id),
+    KEY idx_alert_record_batch (batch_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = '库存预警记录表（规则与结果分表，避免混淆）';
+
+-- =====================================================================
+-- 结构脚本结束。验证语句（执行后可手动查看）：
+--   SELECT COUNT(*) FROM information_schema.tables
+--    WHERE table_schema = 'smartwms' AND table_type = 'BASE TABLE';  -- 应为 29
+-- =====================================================================
