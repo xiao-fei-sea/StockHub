@@ -4,6 +4,9 @@
 # 保留忽略规则文件本身
 !/.gitignore
 
+# 保留仓库说明文档
+!/README.md
+
 # 只保留前后端项目文件夹
 !/WmsCore/
 !/front/
