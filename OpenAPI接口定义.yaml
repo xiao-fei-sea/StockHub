@@ -1,0 +1,3813 @@
+openapi: 3.0.3
+info:
+  title: 智仓云 SmartWMS 系统接口
+  version: 1.0.0
+  description: |
+    智仓云——智能仓库库存管理系统（SmartWMS）全系统 REST API 定义（OpenAPI 3.0.3），可直接导入 Apifox。
+    本文件覆盖《17. API接口汇总清单》全部 133 个接口，路径、方法与接口编号逐一对应、零增减、零改名。
+
+    通用约定：
+    - 基础路径 /api；数据格式 application/json；字符集 UTF-8；字段命名 camelCase（数据库下划线转驼峰）。
+    - 认证：JWT Bearer（securitySchemes.BearerAuth）；除 POST /api/auth/login、POST /api/auth/refresh 免认证外，其余接口均需 Header：Authorization: Bearer <accessToken>（access token 有效期 2 小时，refresh token 7 天）。
+    - 统一响应信封：{code, message, data, timestamp}；分页请求参数 pageNum（默认 1）/pageSize（默认 20，最大 100）；分页响应 data = {total, pageNum, pageSize, list}。
+    - 错误码：200 成功、400 参数校验失败、401 未认证/Token 过期、403 无权限、404 资源不存在、500 系统异常；5 位业务错误码 40001~50001 以 body.code 表达（详见 components.schemas.ErrorResponse 与描述）。
+    - 日期：日期时间格式 yyyy-MM-dd HH:mm:ss（以 string 表示，字段 description 中标注）；纯日期格式 yyyy-MM-dd（format: date）；数量最多 3 位小数，金额最多 2 位小数。
+    - 单据状态机：0 草稿 → 1 待审核 → 2 已审核 → 3 已完成（已过账 POSTED，终态）；1 → 驳回 → 4；0/1/4 → 取消 → 5；1/4 → 撤回 → 0。仅在过账（post）阶段变更库存。
+    - 权限：菜单权限 + 按钮权限 perms（如 sys:user:add）+ 数据仓库权限（warehouse_id 过滤，越权返回 40302）；各接口 description 中标注权限标识。
+
+    待确认：业务错误时 HTTP 状态码统一取 200 还是 409（本文件按 409 演示业务冲突示例，实现时全站统一）。
+    待确认：创建类接口成功响应 data 是否返回新建资源 id（本文件统一按 data=null 描述，可在 Apifox 中按实现回填）。
+    待确认：servers 含 /api 而 paths 按基线清单原样保留 /api 前缀，导入 Apifox 后若出现 /api/api 重复前缀，将服务器地址改为 http://localhost:8080 即可。
+  contact:
+    name: 智仓云 SmartWMS 项目组
+servers:
+  - url: http://localhost:8080/api
+    description: 本地开发环境（基础路径 /api；注意 paths 中已按基线保留 /api 前缀，如出现重复前缀见 info.description 待确认说明）
+security:
+  - BearerAuth: []
+tags:
+  - name: 认证
+    description: 登录、刷新令牌、登出、当前用户信息与菜单权限、用户注册（API-AUTH-001~005；login、refresh、register 免认证）
+  - name: 用户管理
+    description: 用户增删改查、状态/密码/角色/数据仓库权限分配、用户仓库权限查询（API-USR-001~011）
+  - name: 角色权限
+    description: 角色增删改查与菜单权限分配（API-ROLE-001~006）
+  - name: 菜单管理
+    description: 菜单树查询与菜单增删改（API-MENU-001~004）
+  - name: 部门管理
+    description: 部门树查询与部门增删改（API-DEPT-001~004）
+  - name: 仓库管理
+    description: 仓库增删改查与下拉选项（API-WH-001~006）
+  - name: 库位管理
+    description: 库区、货架、货位的增删改查、下拉选项与批量生成（API-AREA-001~005、API-RACK-001~004、API-LOC-001~006）
+  - name: 商品管理
+    description: 商品分类与商品的增删改查、下拉选项（API-CAT-001~004、API-PROD-001~006）
+  - name: 供应商管理
+    description: 供应商增删改查与下拉选项（API-SUP-001~005）
+  - name: 客户管理
+    description: 客户增删改查与下拉选项（API-CUS-001~005）
+  - name: 入库管理
+    description: 入库单全生命周期（创建、编辑、提交、审核、驳回、过账、取消、撤回）（API-INB-001~011）
+  - name: 出库管理
+    description: 出库单全生命周期，过账按 FIFO 分配批次（API-OUT-001~011）
+  - name: 库存查询
+    description: 库存查询、库存变动流水分页、库存汇总（API-INV-001~003）
+  - name: 库存盘点
+    description: 盘点单全生命周期，过账按差异调整库存（API-STK-001~011）
+  - name: 库存调拨
+    description: 调拨单全生命周期，过账时源仓减、目标仓增（API-TRF-001~011）
+  - name: 库存预警
+    description: 预警规则维护与预警记录查询、处理、扫描（API-ALR-001~008）
+  - name: 数据统计
+    description: 首页看板、出入库趋势、分类分布、货位利用率、Top 商品、库存账龄（API-STS-001~006）
+  - name: 操作日志
+    description: 操作日志分页查询与详情（API-OPL-001~002）
+paths:
+  # ===== 认证（API-AUTH-001~005；005 为编码阶段新增，基线外）=====
+  /api/auth/login:
+    post:
+      operationId: login
+      summary: 登录
+      description: "账号密码登录，返回 accessToken/refreshToken。免认证接口（security 为空）。业务错误：40101 账号或密码错误、40102 账号已停用。"
+      tags:
+        - 认证
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example: {username: admin, password: Admin@123456}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Login'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/auth/refresh:
+    post:
+      operationId: refreshAuth
+      summary: 刷新令牌
+      description: "使用 refreshToken 换取新的 accessToken。免认证接口（security 为空）。refresh token 有效期 7 天，失效返回 401。"
+      tags:
+        - 认证
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example: {refreshToken: eyJhbGciOiJIUzI1NiJ9.refresh.xxx}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Login'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/auth/logout:
+    post:
+      operationId: logout
+      summary: 退出登录
+      description: "退出登录，注销当前令牌。权限标识 perms：认证即可（无按钮权限）。"
+      tags:
+        - 认证
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/auth/info:
+    get:
+      operationId: getAuthInfo
+      summary: 获取当前用户信息与菜单权限
+      description: "获取当前登录用户信息、角色、菜单树与按钮权限标识集合。权限标识 perms：认证即可（无按钮权限）。"
+      tags:
+        - 认证
+      responses:
+        '200': {$ref: '#/components/responses/Ok_AuthInfo'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/auth/register:
+    post:
+      operationId: register
+      summary: 用户注册（编码阶段新增，基线外）
+      description: "公开注册新账号：username 唯一，password 至少 8 位且含字母与数字，BCrypt 存储；默认启用并绑定默认角色 ROLE_OPERATOR。免认证接口（security 为空）。业务错误：40001 参数校验失败、40904 账号已存在。"
+      tags:
+        - 认证
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example: {username: zhangsan, password: 'Zhangsan@123', realName: 张三, phone: '13800138000'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 用户管理（API-USR-001~011）=====
+  /api/users:
+    get:
+      operationId: listUsers
+      summary: 用户分页查询
+      description: "用户分页查询，权限标识 perms：sys:user:list。支持 keyword/status/deptId 条件过滤，服务端叠加数据权限过滤。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: keyword, in: query, description: 模糊关键字（用户名/姓名/手机号）, schema: {type: string, example: 张}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+        - {name: deptId, in: query, description: 部门 id 过滤, schema: {type: integer, format: int64, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_UserPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createUser
+      summary: 创建用户
+      description: "创建用户，权限标识 perms：sys:user:add。用户名唯一，密码 BCrypt 加密存储。业务错误：40904 编码已存在（用户名重复）。"
+      tags:
+        - 用户管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+            example: {username: zhangsan, password: 'Abc@123456', realName: 张三, phone: '13800138000', email: zhangsan@example.com, deptId: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/users/{id}:
+    get:
+      operationId: getUserById
+      summary: 用户详情
+      description: "按 id 查询用户详情，权限标识 perms：sys:user:list。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateUser
+      summary: 编辑用户
+      description: "编辑用户基础信息，权限标识 perms：sys:user:edit。用户名不可修改。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+            example: {realName: 张三, phone: '13800138000', email: zhangsan@example.com, deptId: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteUser
+      summary: 删除用户
+      description: "逻辑删除用户，权限标识 perms：sys:user:delete。业务错误：40901 存在关联角色/数据不允许删除。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/users/{id}/status:
+    put:
+      operationId: updateUserStatus
+      summary: 启用/停用用户
+      description: "启用或停用用户，权限标识 perms：sys:user:status（2026-11-06 已补入 sys_menu 初始化，menu id=901）。停用后登录返回 40102。可重复调用，以最后一次为准。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserStatusRequest'
+            example: {status: 0}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/users/{id}/password:
+    put:
+      operationId: resetUserPassword
+      summary: 重置用户密码
+      description: "重置用户密码（管理员操作），权限标识 perms：sys:user:reset。密码 BCrypt 加密存储。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPasswordRequest'
+            example: {password: 'Abc@123456'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/users/{id}/roles:
+    put:
+      operationId: assignUserRoles
+      summary: 分配用户角色
+      description: "为用户分配角色（整体替换语义），权限标识 perms：sys:user:role（与 sys_menu「分配角色」一致）。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRoleGrantRequest'
+            example: {roleIds: [2, 3]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/users/{id}/warehouses:
+    put:
+      operationId: assignUserWarehouses
+      summary: 分配用户数据仓库权限
+      description: "为用户分配可见/可操作的仓库范围（整体替换语义），权限标识 perms：sys:user:assignWarehouse（2026-11-06 已补入 sys_menu 初始化，menu id=902）。admin 与 ROLE_VIEWER 不受该范围限制。"
+      tags:
+        - 用户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserWarehouseGrantRequest'
+            example: {warehouseIds: [1, 2]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/users/options:
+    get:
+      operationId: getUserOptions
+      summary: 用户下拉选项
+      description: "用户下拉选项（id + 显示名），权限标识 perms：sys:user:list。"
+      tags:
+        - 用户管理
+      parameters:
+        - {name: keyword, in: query, description: 模糊关键字（用户名/姓名）, schema: {type: string, example: 张}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/user-warehouses/{userId}:
+    get:
+      operationId: getUserWarehouses
+      summary: 查询用户仓库权限
+      description: "查询指定用户已授权的数据仓库列表，权限标识 perms：sys:user:list。"
+      tags:
+        - 用户管理
+      parameters:
+        - {name: userId, in: path, required: true, description: 用户 id, schema: {type: integer, format: int64, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_UserWarehouses'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 部门管理（API-DEPT-001~004）=====
+  /api/depts/tree:
+    get:
+      operationId: listDeptTree
+      summary: 部门树查询
+      description: "查询部门树（含 children 子节点），权限标识 perms：sys:dept:list。"
+      tags:
+        - 部门管理
+      responses:
+        '200': {$ref: '#/components/responses/Ok_DeptTree'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/depts:
+    post:
+      operationId: createDept
+      summary: 创建部门
+      description: "创建部门，权限标识 perms：sys:dept:add。业务错误：40904 编码已存在。"
+      tags:
+        - 部门管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Dept'
+            example: {parentId: 0, deptName: 仓储部, sort: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/depts/{id}:
+    put:
+      operationId: updateDept
+      summary: 编辑部门
+      description: "编辑部门，权限标识 perms：sys:dept:edit。"
+      tags:
+        - 部门管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Dept'
+            example: {parentId: 0, deptName: 仓储部, sort: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteDept
+      summary: 删除部门
+      description: "删除部门，权限标识 perms：sys:dept:delete。业务错误：40901 存在下级部门或关联用户时不可删除。"
+      tags:
+        - 部门管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 角色权限（API-ROLE-001~006）=====
+  /api/roles:
+    get:
+      operationId: listRoles
+      summary: 角色分页查询
+      description: "角色分页查询，权限标识 perms：sys:role:list。"
+      tags:
+        - 角色权限
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: keyword, in: query, description: 模糊关键字（角色名称/标识）, schema: {type: string, example: 主管}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_RolePage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createRole
+      summary: 创建角色
+      description: "创建角色，权限标识 perms：sys:role:add。roleKey 唯一，业务错误：40904 编码已存在。"
+      tags:
+        - 角色权限
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Role'
+            example: {roleName: 仓库主管, roleKey: ROLE_MANAGER, roleSort: 2, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/roles/{id}:
+    get:
+      operationId: getRoleById
+      summary: 角色详情
+      description: "按 id 查询角色详情（含已分配 menuIds），权限标识 perms：sys:role:list。"
+      tags:
+        - 角色权限
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Role'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateRole
+      summary: 编辑角色
+      description: "编辑角色，权限标识 perms：sys:role:edit。"
+      tags:
+        - 角色权限
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Role'
+            example: {roleName: 仓库主管, roleKey: ROLE_MANAGER, roleSort: 2, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteRole
+      summary: 删除角色
+      description: "删除角色，权限标识 perms：sys:role:delete。业务错误：40901 存在关联用户时不可删除。"
+      tags:
+        - 角色权限
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/roles/{id}/menus:
+    put:
+      operationId: assignRoleMenus
+      summary: 分配角色菜单权限
+      description: "为角色分配菜单/按钮权限（整体替换语义），权限标识 perms：sys:role:assign（与 sys_menu「分配权限」一致）。"
+      tags:
+        - 角色权限
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleMenuGrantRequest'
+            example: {menuIds: [100, 101, 102, 200]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 菜单管理（API-MENU-001~004）=====
+  /api/menus/tree:
+    get:
+      operationId: listMenuTree
+      summary: 菜单树查询
+      description: "查询菜单树（目录/菜单/按钮，含 children），权限标识 perms：sys:menu:list。"
+      tags:
+        - 菜单管理
+      responses:
+        '200': {$ref: '#/components/responses/Ok_MenuTree'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/menus:
+    post:
+      operationId: createMenu
+      summary: 创建菜单
+      description: "创建菜单（目录 C/菜单 M/按钮 B），权限标识 perms：sys:menu:add。按钮类型必须填写 perms 权限标识。"
+      tags:
+        - 菜单管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Menu'
+            example: {parentId: 10, menuName: 用户列表, menuType: M, perms: sys:user:list, path: user, component: system/user/index, icon: user, sort: 1, visible: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/menus/{id}:
+    put:
+      operationId: updateMenu
+      summary: 编辑菜单
+      description: "编辑菜单，权限标识 perms：sys:menu:edit。"
+      tags:
+        - 菜单管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Menu'
+            example: {parentId: 10, menuName: 用户列表, menuType: M, perms: sys:user:list, path: user, component: system/user/index, icon: user, sort: 1, visible: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteMenu
+      summary: 删除菜单
+      description: "删除菜单，权限标识 perms：sys:menu:delete。业务错误：40901 存在子菜单或被角色引用时不可删除。"
+      tags:
+        - 菜单管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 仓库管理（API-WH-001~006）=====
+  /api/warehouses:
+    get:
+      operationId: listWarehouses
+      summary: 仓库分页查询
+      description: "仓库分页查询，权限标识 perms：sys:warehouse:list。服务端叠加数据仓库权限过滤。"
+      tags:
+        - 仓库管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: keyword, in: query, description: 模糊关键字（仓库编码/名称）, schema: {type: string, example: 华东}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_WarehousePage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createWarehouse
+      summary: 创建仓库
+      description: "创建仓库，权限标识 perms：sys:warehouse:add。warehouseCode 唯一（WH- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 仓库管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Warehouse'
+            example: {warehouseCode: WH-001, warehouseName: 华东一仓, address: 上海市青浦区徐泾镇, contactName: 王强, contactPhone: '13900139000', areaSize: 6000.50, status: 1, sort: 1, remark: 主仓}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/warehouses/{id}:
+    get:
+      operationId: getWarehouseById
+      summary: 仓库详情
+      description: "按 id 查询仓库详情，权限标识 perms：sys:warehouse:list。"
+      tags:
+        - 仓库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Warehouse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateWarehouse
+      summary: 编辑仓库
+      description: "编辑仓库，权限标识 perms：sys:warehouse:edit。"
+      tags:
+        - 仓库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Warehouse'
+            example: {warehouseCode: WH-001, warehouseName: 华东一仓, address: 上海市青浦区徐泾镇, contactName: 王强, contactPhone: '13900139000', areaSize: 6000.50, status: 1, sort: 1, remark: 主仓}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteWarehouse
+      summary: 删除仓库
+      description: "删除仓库（逻辑删除），权限标识 perms：sys:warehouse:delete。业务错误：40901 存在库区/货位/库存关联时不可删除。"
+      tags:
+        - 仓库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/warehouses/options:
+    get:
+      operationId: getWarehouseOptions
+      summary: 仓库下拉选项
+      description: "仓库下拉选项（id + 名称），权限标识 perms：sys:warehouse:list。"
+      tags:
+        - 仓库管理
+      parameters:
+        - {name: keyword, in: query, description: 模糊关键字（仓库编码/名称）, schema: {type: string, example: 华东}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 库位管理（API-AREA / API-RACK / API-LOC）=====
+  /api/areas:
+    get:
+      operationId: listAreas
+      summary: 库区分页查询
+      description: "库区分页查询，权限标识 perms：sys:area:list。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: keyword, in: query, description: 模糊关键字（库区编码/名称）, schema: {type: string, example: 存储}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_AreaPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createArea
+      summary: 创建库区
+      description: "创建库区，权限标识 perms：sys:area:add。同一仓库内 areaCode 唯一（QY- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 库位管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageArea'
+            example: {warehouseId: 1, areaCode: QY-01, areaName: A 存储区, areaType: 存储区, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/areas/{id}:
+    put:
+      operationId: updateArea
+      summary: 编辑库区
+      description: "编辑库区，权限标识 perms：sys:area:edit。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageArea'
+            example: {warehouseId: 1, areaCode: QY-01, areaName: A 存储区, areaType: 存储区, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteArea
+      summary: 删除库区
+      description: "删除库区（逻辑删除），权限标识 perms：sys:area:delete。业务错误：40901 存在下级货架/货位时不可删除。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/areas/options:
+    get:
+      operationId: getAreaOptions
+      summary: 库区下拉选项
+      description: "库区下拉选项，权限标识 perms：sys:area:list。示例查询参数 warehouseId 可选（按仓库过滤）。"
+      tags:
+        - 库位管理
+      parameters:
+        - {name: warehouseId, in: query, required: false, description: "仓库 id（基线示例 ?warehouseId=，可选）", schema: {type: integer, format: int64, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  /api/racks:
+    get:
+      operationId: listRacks
+      summary: 货架分页查询
+      description: "货架分页查询，权限标识 perms：sys:rack:list。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: areaId, in: query, description: 库区 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: keyword, in: query, description: 模糊关键字（货架编码/名称）, schema: {type: string, example: JH-01}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_RackPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createRack
+      summary: 创建货架
+      description: "创建货架，权限标识 perms：sys:rack:add。同一库区内 rackCode 唯一（JH- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 库位管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rack'
+            example: {warehouseId: 1, areaId: 1, rackCode: JH-01, rackName: 1 号货架, floorCount: 5, columnCount: 10, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/racks/{id}:
+    put:
+      operationId: updateRack
+      summary: 编辑货架
+      description: "编辑货架，权限标识 perms：sys:rack:edit。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Rack'
+            example: {warehouseId: 1, areaId: 1, rackCode: JH-01, rackName: 1 号货架, floorCount: 5, columnCount: 10, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteRack
+      summary: 删除货架
+      description: "删除货架（逻辑删除），权限标识 perms：sys:rack:delete。业务错误：40901 存在下级货位时不可删除。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  /api/locations:
+    get:
+      operationId: listLocations
+      summary: 货位分页查询
+      description: "货位分页查询，权限标识 perms：sys:location:list。支持 warehouseId/areaId/rackId/status/keyword 过滤。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: areaId, in: query, description: 库区 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: rackId, in: query, description: 货架 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+        - {name: currentStatus, in: query, description: 货位状态过滤（空闲/占用/锁定/禁用）, schema: {type: string, example: 空闲}}
+        - {name: keyword, in: query, description: 模糊关键字（货位编码/名称）, schema: {type: string, example: HW-0101}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_LocationPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createLocation
+      summary: 创建货位
+      description: "创建货位（仓库→库区→货架→货位四级），权限标识 perms：sys:location:add。locationCode 全局唯一（HW- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 库位管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Location'
+            example: {warehouseId: 1, areaId: 1, rackId: 1, locationCode: HW-010101, locationName: 1-1-1 货位, locationType: 存储位, capacityVolume: 2.500, currentStatus: 空闲, sort: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/locations/{id}:
+    put:
+      operationId: updateLocation
+      summary: 编辑货位
+      description: "编辑货位，权限标识 perms：sys:location:edit。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Location'
+            example: {warehouseId: 1, areaId: 1, rackId: 1, locationCode: HW-010101, locationName: 1-1-1 货位, locationType: 存储位, capacityVolume: 2.500, currentStatus: 空闲, sort: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteLocation
+      summary: 删除货位
+      description: "删除货位（逻辑删除），权限标识 perms：sys:location:delete。业务错误：40901 存在库存关联时不可删除。"
+      tags:
+        - 库位管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/locations/options:
+    get:
+      operationId: getLocationOptions
+      summary: 货位下拉选项
+      description: "货位下拉选项，权限标识 perms：sys:location:list。"
+      tags:
+        - 库位管理
+      parameters:
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: areaId, in: query, description: 库区 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: rackId, in: query, description: 货架 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: keyword, in: query, description: 模糊关键字（货位编码）, schema: {type: string, example: HW-0101}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/locations/batch:
+    post:
+      operationId: batchCreateLocations
+      summary: 批量生成货位
+      description: "按货架层数×列数批量生成货位（可选接口），权限标识 perms：sys:location:add。业务错误：40904 货位编码已存在。"
+      tags:
+        - 库位管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationBatchCreateRequest'
+            example: {warehouseId: 1, areaId: 1, rackId: 1, floorCount: 5, columnCount: 10, locationType: 存储位, capacityVolume: 2.500, startNo: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 商品管理（API-CAT / API-PROD）=====
+  /api/categories/tree:
+    get:
+      operationId: listCategoryTree
+      summary: 商品分类树查询
+      description: "查询商品分类树（含 children），权限标识 perms：sys:category:list。"
+      tags:
+        - 商品管理
+      responses:
+        '200': {$ref: '#/components/responses/Ok_CategoryTree'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/categories:
+    post:
+      operationId: createCategory
+      summary: 创建商品分类
+      description: "创建商品分类，权限标识 perms：sys:category:add。categoryCode 唯一（FL- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 商品管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCategory'
+            example: {parentId: 0, categoryCode: FL-01, categoryName: 日用百货, level: 1, sort: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/categories/{id}:
+    put:
+      operationId: updateCategory
+      summary: 编辑商品分类
+      description: "编辑商品分类，权限标识 perms：sys:category:edit。"
+      tags:
+        - 商品管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCategory'
+            example: {parentId: 0, categoryCode: FL-01, categoryName: 日用百货, level: 1, sort: 1, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteCategory
+      summary: 删除商品分类
+      description: "删除商品分类（逻辑删除），权限标识 perms：sys:category:delete。业务错误：40901 存在下级分类或关联商品时不可删除。"
+      tags:
+        - 商品管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  /api/products:
+    get:
+      operationId: listProducts
+      summary: 商品分页查询
+      description: "商品分页查询，权限标识 perms：sys:product:list。"
+      tags:
+        - 商品管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: keyword, in: query, description: 模糊关键字（商品编码/名称/规格）, schema: {type: string, example: 纸巾}}
+        - {name: categoryId, in: query, description: 商品分类 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_ProductPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createProduct
+      summary: 创建商品
+      description: "创建商品，权限标识 perms：sys:product:add。productCode 唯一（P- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 商品管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+            example: {productCode: P-0001, productName: 抽纸 120 抽, categoryId: 1, brand: 洁云, unit: 包, spec: '120 抽×10 包', weight: 3.500, volume: 0.012, shelfLifeFlag: 0, shelfLifeDays: 0, batchFlag: 1, minStock: 100.000, maxStock: 5000.000, price: 12.50, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/products/{id}:
+    get:
+      operationId: getProductById
+      summary: 商品详情
+      description: "按 id 查询商品详情，权限标识 perms：sys:product:list。"
+      tags:
+        - 商品管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateProduct
+      summary: 编辑商品
+      description: "编辑商品，权限标识 perms：sys:product:edit。"
+      tags:
+        - 商品管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+            example: {productCode: P-0001, productName: 抽纸 120 抽, categoryId: 1, brand: 洁云, unit: 包, spec: '120 抽×10 包', weight: 3.500, volume: 0.012, shelfLifeFlag: 0, shelfLifeDays: 0, batchFlag: 1, minStock: 100.000, maxStock: 5000.000, price: 12.50, status: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteProduct
+      summary: 删除商品
+      description: "删除商品（逻辑删除），权限标识 perms：sys:product:delete。业务错误：40901 存在库存/单据关联时不可删除。"
+      tags:
+        - 商品管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/products/options:
+    get:
+      operationId: getProductOptions
+      summary: 商品下拉选项
+      description: "商品下拉选项（id + 名称），权限标识 perms：sys:product:list。"
+      tags:
+        - 商品管理
+      parameters:
+        - {name: keyword, in: query, description: 模糊关键字（商品编码/名称）, schema: {type: string, example: 纸巾}}
+        - {name: categoryId, in: query, description: 商品分类 id, schema: {type: integer, format: int64, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 供应商管理（API-SUP-001~005）=====
+  /api/suppliers:
+    get:
+      operationId: listSuppliers
+      summary: 供应商分页查询
+      description: "供应商分页查询，权限标识 perms：sys:supplier:list。"
+      tags:
+        - 供应商管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: keyword, in: query, description: 模糊关键字（供应商编码/名称/联系人）, schema: {type: string, example: 华润}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_SupplierPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createSupplier
+      summary: 创建供应商
+      description: "创建供应商，权限标识 perms：sys:supplier:add。supplierCode 唯一（S- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 供应商管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Supplier'
+            example: {supplierCode: S-001, supplierName: 华润商贸有限公司, contactName: 李四, contactPhone: '13700137000', email: supplier@example.com, address: 江苏省南京市江宁区, bankInfo: 中国银行南京支行 6220xxx, status: 1, remark: 长期合作}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/suppliers/{id}:
+    put:
+      operationId: updateSupplier
+      summary: 编辑供应商
+      description: "编辑供应商，权限标识 perms：sys:supplier:edit。"
+      tags:
+        - 供应商管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Supplier'
+            example: {supplierCode: S-001, supplierName: 华润商贸有限公司, contactName: 李四, contactPhone: '13700137000', email: supplier@example.com, address: 江苏省南京市江宁区, bankInfo: 中国银行南京支行 6220xxx, status: 1, remark: 长期合作}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteSupplier
+      summary: 删除供应商
+      description: "删除供应商（逻辑删除），权限标识 perms：sys:supplier:delete。业务错误：40901 存在入库单/批次关联时不可删除。"
+      tags:
+        - 供应商管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/suppliers/options:
+    get:
+      operationId: getSupplierOptions
+      summary: 供应商下拉选项
+      description: "供应商下拉选项（id + 名称），权限标识 perms：sys:supplier:list。"
+      tags:
+        - 供应商管理
+      parameters:
+        - {name: keyword, in: query, description: 模糊关键字（供应商编码/名称）, schema: {type: string, example: 华润}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 客户管理（API-CUS-001~005）=====
+  /api/customers:
+    get:
+      operationId: listCustomers
+      summary: 客户分页查询
+      description: "客户分页查询，权限标识 perms：sys:customer:list。"
+      tags:
+        - 客户管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: keyword, in: query, description: 模糊关键字（客户编码/名称/联系人）, schema: {type: string, example: 永辉}}
+        - {name: status, in: query, description: 状态过滤（0 停用 1 正常）, schema: {type: integer, format: int32, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_CustomerPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createCustomer
+      summary: 创建客户
+      description: "创建客户，权限标识 perms：sys:customer:add。customerCode 唯一（C- 前缀），业务错误：40904 编码已存在。"
+      tags:
+        - 客户管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+            example: {customerCode: C-001, customerName: 永辉超市股份有限公司, contactName: 赵六, contactPhone: '13600136000', email: customer@example.com, address: 福建省福州市鼓楼区, status: 1, remark: 战略客户}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/customers/{id}:
+    put:
+      operationId: updateCustomer
+      summary: 编辑客户
+      description: "编辑客户，权限标识 perms：sys:customer:edit。"
+      tags:
+        - 客户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+            example: {customerCode: C-001, customerName: 永辉超市股份有限公司, contactName: 赵六, contactPhone: '13600136000', email: customer@example.com, address: 福建省福州市鼓楼区, status: 1, remark: 战略客户}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteCustomer
+      summary: 删除客户
+      description: "删除客户（逻辑删除），权限标识 perms：sys:customer:delete。业务错误：40901 存在出库单关联时不可删除。"
+      tags:
+        - 客户管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/customers/options:
+    get:
+      operationId: getCustomerOptions
+      summary: 客户下拉选项
+      description: "客户下拉选项（id + 名称），权限标识 perms：sys:customer:list。"
+      tags:
+        - 客户管理
+      parameters:
+        - {name: keyword, in: query, description: 模糊关键字（客户编码/名称）, schema: {type: string, example: 永辉}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Options'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 入库管理（API-INB-001~011）=====
+  /api/inbounds:
+    get:
+      operationId: listInbounds
+      summary: 入库单分页查询
+      description: "入库单分页查询，权限标识 perms：sys:inbound:list。支持 status/warehouseId/inboundNo/keyword/startDate/endDate 过滤，服务端叠加数据仓库权限。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: status, in: query, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, schema: {type: integer, format: int32, example: 1}}
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: inboundNo, in: query, description: 入库单号精确查询, schema: {type: string, example: RK20261106001}}
+        - {name: keyword, in: query, description: 模糊关键字, schema: {type: string, example: RK2026}}
+        - {name: startDate, in: query, description: 创建开始日期（yyyy-MM-dd，含两端）, schema: {type: string, format: date, example: '2026-11-01'}}
+        - {name: endDate, in: query, description: 创建结束日期（yyyy-MM-dd，含两端）, schema: {type: string, format: date, example: '2026-11-06'}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_InboundPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createInbound
+      summary: 创建入库单
+      description: "创建入库单草稿（含明细 items[]），权限标识 perms：sys:inbound:add。单号按 RK+yyyyMMdd+3 位序号自动生成；业务错误：40904 单号重复、40905 重复提交、40906 货位状态不可用。"
+      tags:
+        - 入库管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundOrderCreateRequest'
+            example: {orderType: 采购入库, supplierId: 1, sourceOrderNo: PO20261106001, expectDate: '2026-11-08', warehouseId: 1, remark: 例行采购, items: [{lineNo: 1, productId: 1, locationId: 1, batchNo: B2026110601, productionDate: '2026-11-01', expiryDate: '2027-11-01', planQty: 100.000, unit: 包, remark: 首批}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}:
+    get:
+      operationId: getInboundById
+      summary: 入库单详情
+      description: "查询入库单详情（含明细 items），权限标识 perms：sys:inbound:list。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Inbound'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateInbound
+      summary: 编辑入库单
+      description: "编辑入库单（仅草稿 0/已驳回 4 可编辑），权限标识 perms：sys:inbound:edit。业务错误：40901 状态不允许。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundOrderCreateRequest'
+            example: {orderType: 采购入库, supplierId: 1, sourceOrderNo: PO20261106001, expectDate: '2026-11-08', warehouseId: 1, remark: 例行采购, items: [{lineNo: 1, productId: 1, locationId: 1, batchNo: B2026110601, planQty: 120.000, unit: 包}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteInbound
+      summary: 删除入库单
+      description: "删除入库单（仅草稿 0 可删除），权限标识 perms：sys:inbound:delete。业务错误：40901 状态不允许。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}/submit:
+    put:
+      operationId: submitInbound
+      summary: 入库单提交
+      description: "提交入库单至待审核（0→1），权限标识 perms：sys:inbound:submit。业务错误：40901 状态不允许、40905 重复提交。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}/audit:
+    put:
+      operationId: auditInbound
+      summary: 入库单审核
+      description: "审核通过入库单（1→2，仅锁定不改库存），权限标识 perms：sys:inbound:audit。body 可含 remark。业务错误：40901 状态不允许。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditRequest'
+            example: {remark: 数据核对无误}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}/reject:
+    put:
+      operationId: rejectInbound
+      summary: 入库单驳回
+      description: "驳回入库单（1→4），权限标识 perms：sys:inbound:reject。reason 必填。业务错误：40901 状态不允许。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+            example: {reason: 明细数量与采购单不一致，请核对}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}/post:
+    put:
+      operationId: postInbound
+      summary: 入库单过账
+      description: "过账入库单（2→3），单事务增加库存并写 stock_flow 流水，权限标识 perms：sys:inbound:post。业务错误：40901 状态不允许、40906 货位状态不可用、40905 重复提交。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}/cancel:
+    put:
+      operationId: cancelInbound
+      summary: 入库单取消
+      description: "取消入库单（0/1/4→5，终态），权限标识 perms：sys:inbound:cancel。业务错误：40901 状态不允许。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inbounds/{id}/withdraw:
+    put:
+      operationId: withdrawInbound
+      summary: 入库单撤回
+      description: "撤回入库单至草稿（1/4→0），权限标识 perms：sys:inbound:withdraw。业务错误：40901 状态不允许。"
+      tags:
+        - 入库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 出库管理（API-OUT-001~011，与入库同构）=====
+  /api/outbounds:
+    get:
+      operationId: listOutbounds
+      summary: 出库单分页查询
+      description: "出库单分页查询，权限标识 perms：sys:outbound:list。支持 status/warehouseId/outboundNo/keyword/startDate/endDate 过滤，服务端叠加数据仓库权限。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: status, in: query, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, schema: {type: integer, format: int32, example: 1}}
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: outboundNo, in: query, description: 出库单号精确查询, schema: {type: string, example: CK20261106001}}
+        - {name: keyword, in: query, description: 模糊关键字, schema: {type: string, example: CK2026}}
+        - {name: startDate, in: query, description: 创建开始日期（yyyy-MM-dd，含两端）, schema: {type: string, format: date, example: '2026-11-01'}}
+        - {name: endDate, in: query, description: 创建结束日期（yyyy-MM-dd，含两端）, schema: {type: string, format: date, example: '2026-11-06'}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_OutboundPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createOutbound
+      summary: 创建出库单
+      description: "创建出库单草稿（含明细 items[]），权限标识 perms：sys:outbound:add。单号按 CK+yyyyMMdd+3 位序号自动生成；业务错误：40904 单号重复、40905 重复提交。"
+      tags:
+        - 出库管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutboundOrderCreateRequest'
+            example: {orderType: 销售出库, customerId: 1, sourceOrderNo: SO20261106001, expectDate: '2026-11-07', warehouseId: 1, remark: 客户加急, items: [{lineNo: 1, productId: 1, planQty: 50.000, unit: 包, remark: 待过账按 FIFO 分配批次}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}:
+    get:
+      operationId: getOutboundById
+      summary: 出库单详情
+      description: "查询出库单详情（含明细 items），权限标识 perms：sys:outbound:list。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Outbound'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateOutbound
+      summary: 编辑出库单
+      description: "编辑出库单（仅草稿 0/已驳回 4 可编辑），权限标识 perms：sys:outbound:edit。业务错误：40901 状态不允许。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutboundOrderCreateRequest'
+            example: {orderType: 销售出库, customerId: 1, sourceOrderNo: SO20261106001, expectDate: '2026-11-07', warehouseId: 1, remark: 客户加急, items: [{lineNo: 1, productId: 1, planQty: 60.000, unit: 包}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteOutbound
+      summary: 删除出库单
+      description: "删除出库单（仅草稿 0 可删除），权限标识 perms：sys:outbound:delete。业务错误：40901 状态不允许。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}/submit:
+    put:
+      operationId: submitOutbound
+      summary: 出库单提交
+      description: "提交出库单至待审核（0→1），权限标识 perms：sys:outbound:submit。业务错误：40901 状态不允许、40905 重复提交。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}/audit:
+    put:
+      operationId: auditOutbound
+      summary: 出库单审核
+      description: "审核通过出库单（1→2，仅锁定不改库存），权限标识 perms：sys:outbound:audit。body 可含 remark。业务错误：40901 状态不允许。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditRequest'
+            example: {remark: 审核通过}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}/reject:
+    put:
+      operationId: rejectOutbound
+      summary: 出库单驳回
+      description: "驳回出库单（1→4），权限标识 perms：sys:outbound:reject。reason 必填。业务错误：40901 状态不允许。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+            example: {reason: 库存不足，请调整数量}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}/post:
+    put:
+      operationId: postOutbound
+      summary: 出库单过账
+      description: "过账出库单（2→3），按 FIFO 分配批次并扣减库存、写 stock_flow 流水，权限标识 perms：sys:outbound:post。业务错误：40901 状态不允许、40902 库存不足、40903 库存不能为负、40905 重复提交。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}/cancel:
+    put:
+      operationId: cancelOutbound
+      summary: 出库单取消
+      description: "取消出库单（0/1/4→5，终态），权限标识 perms：sys:outbound:cancel。业务错误：40901 状态不允许。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/outbounds/{id}/withdraw:
+    put:
+      operationId: withdrawOutbound
+      summary: 出库单撤回
+      description: "撤回出库单至草稿（1/4→0），权限标识 perms：sys:outbound:withdraw。业务错误：40901 状态不允许。"
+      tags:
+        - 出库管理
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 库存查询（API-INV-001~003）=====
+  /api/inventory:
+    get:
+      operationId: queryInventory
+      summary: 库存查询
+      description: "库存分页查询（warehouse_id 为强制维度），权限标识 perms：sys:inventory:list。支持 warehouseId/categoryId/productId/locationId/batchNo/keyword/onlyPositive 过滤。"
+      tags:
+        - 库存查询
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: warehouseId, in: query, description: 仓库 id（强制维度）, schema: {type: integer, format: int64, example: 1}}
+        - {name: categoryId, in: query, description: 商品分类 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: productId, in: query, description: 商品 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: locationId, in: query, description: 货位 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: batchNo, in: query, description: 批次号精确查询, schema: {type: string, example: B2026110601}}
+        - {name: keyword, in: query, description: 模糊关键字（商品编码/名称）, schema: {type: string, example: 纸巾}}
+        - {name: onlyPositive, in: query, description: 仅显示库存大于 0 的记录（默认 false）, schema: {type: boolean, example: true}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_InventoryPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inventory/flows:
+    get:
+      operationId: queryStockFlows
+      summary: 库存流水分页查询
+      description: "库存变动流水分页查询（before_qty/after_qty 可追溯），权限标识 perms：sys:inventory:list。支持 warehouseId/productId/flowType/refNo/startDate/endDate 过滤。"
+      tags:
+        - 库存查询
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: productId, in: query, description: 商品 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: flowType, in: query, description: 流水类型（入库/出库/调拨入/调拨出/盘盈/盘亏/调整）, schema: {type: string, example: 入库}}
+        - {name: refNo, in: query, description: 关联单号精确查询, schema: {type: string, example: RK20261106001}}
+        - {name: startDate, in: query, description: 变动开始日期（yyyy-MM-dd，含两端）, schema: {type: string, format: date, example: '2026-11-01'}}
+        - {name: endDate, in: query, description: 变动结束日期（yyyy-MM-dd，含两端）, schema: {type: string, format: date, example: '2026-11-06'}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_FlowPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/inventory/summary:
+    get:
+      operationId: getInventorySummary
+      summary: 库存汇总
+      description: "库存按仓库/分类汇总（供数据看板），权限标识 perms：sys:inventory:list。"
+      tags:
+        - 库存查询
+      parameters:
+        - {name: warehouseId, in: query, description: 仓库 id（可选，不传则汇总授权范围内全部仓库）, schema: {type: integer, format: int64, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_InventorySummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 库存调拨（API-TRF-001~011）=====
+  /api/transfers:
+    get:
+      operationId: listTransfers
+      summary: 调拨单分页查询
+      description: "调拨单分页查询，权限标识 perms：sys:transfer:list。支持 status/srcWarehouseId/destWarehouseId/keyword/startDate/endDate 过滤。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: status, in: query, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, schema: {type: integer, format: int32, example: 1}}
+        - {name: srcWarehouseId, in: query, description: 源仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: destWarehouseId, in: query, description: 目标仓库 id, schema: {type: integer, format: int64, example: 2}}
+        - {name: keyword, in: query, description: 模糊关键字（调拨单号）, schema: {type: string, example: DB2026}}
+        - {name: startDate, in: query, description: 创建开始日期（yyyy-MM-dd）, schema: {type: string, format: date, example: '2026-11-01'}}
+        - {name: endDate, in: query, description: 创建结束日期（yyyy-MM-dd）, schema: {type: string, format: date, example: '2026-11-06'}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_TransferPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createTransfer
+      summary: 创建调拨单
+      description: "创建调拨单草稿（含明细 items[]），权限标识 perms：sys:transfer:add。单号按 DB+yyyyMMdd+3 位序号自动生成；业务错误：40904 单号重复、40905 重复提交。"
+      tags:
+        - 库存调拨
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferOrderCreateRequest'
+            example: {srcWarehouseId: 1, destWarehouseId: 2, remark: 华东调拨至华南, items: [{lineNo: 1, productId: 1, batchId: 1001, srcLocationId: 1, destLocationId: 201, planQty: 20.000}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}:
+    get:
+      operationId: getTransferById
+      summary: 调拨单详情
+      description: "查询调拨单详情（含明细 items），权限标识 perms：sys:transfer:list。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Transfer'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateTransfer
+      summary: 编辑调拨单
+      description: "编辑调拨单（仅草稿 0/已驳回 4），权限标识 perms：sys:transfer:edit。业务错误：40901 状态不允许。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferOrderCreateRequest'
+            example: {srcWarehouseId: 1, destWarehouseId: 2, remark: 华东调拨至华南, items: [{lineNo: 1, productId: 1, batchId: 1001, srcLocationId: 1, destLocationId: 201, planQty: 30.000}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteTransfer
+      summary: 删除调拨单
+      description: "删除调拨单（仅草稿 0），权限标识 perms：sys:transfer:delete。业务错误：40901 状态不允许。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}/submit:
+    put:
+      operationId: submitTransfer
+      summary: 调拨单提交
+      description: "提交调拨单至待审核（0→1），权限标识 perms：sys:transfer:submit。业务错误：40901 状态不允许、40905 重复提交。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}/audit:
+    put:
+      operationId: auditTransfer
+      summary: 调拨单审核
+      description: "审核通过调拨单（1→2），权限标识 perms：sys:transfer:audit。body 可含 remark。业务错误：40901 状态不允许。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditRequest'
+            example: {remark: 同意调拨}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}/reject:
+    put:
+      operationId: rejectTransfer
+      summary: 调拨单驳回
+      description: "驳回调拨单（1→4），权限标识 perms：sys:transfer:reject。reason 必填。业务错误：40901 状态不允许。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+            example: {reason: 目标仓库货位不足}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}/post:
+    put:
+      operationId: postTransfer
+      summary: 调拨单过账
+      description: "过账调拨单（2→3），源仓减库存、目标仓增库存（简化模型），写调拨出/入流水，权限标识 perms：sys:transfer:post。业务错误：40901 状态不允许、40902 库存不足、40903 库存不能为负。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}/cancel:
+    put:
+      operationId: cancelTransfer
+      summary: 调拨单取消
+      description: "取消调拨单（0/1/4→5，终态），权限标识 perms：sys:transfer:cancel。业务错误：40901 状态不允许。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/transfers/{id}/withdraw:
+    put:
+      operationId: withdrawTransfer
+      summary: 调拨单撤回
+      description: "撤回调拨单至草稿（1/4→0），权限标识 perms：sys:transfer:withdraw。业务错误：40901 状态不允许。"
+      tags:
+        - 库存调拨
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 库存盘点（API-STK-001~011）=====
+  /api/stocktakes:
+    get:
+      operationId: listStocktakes
+      summary: 盘点单分页查询
+      description: "盘点单分页查询，权限标识 perms：sys:stocktake:list。支持 status/warehouseId/stocktakeNo/keyword/startDate/endDate 过滤。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: status, in: query, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, schema: {type: integer, format: int32, example: 1}}
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: stocktakeNo, in: query, description: 盘点单号精确查询, schema: {type: string, example: PD20261106001}}
+        - {name: keyword, in: query, description: 模糊关键字, schema: {type: string, example: PD2026}}
+        - {name: startDate, in: query, description: 创建开始日期（yyyy-MM-dd）, schema: {type: string, format: date, example: '2026-11-01'}}
+        - {name: endDate, in: query, description: 创建结束日期（yyyy-MM-dd）, schema: {type: string, format: date, example: '2026-11-06'}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_StocktakePage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createStocktake
+      summary: 创建盘点单
+      description: "创建盘点单并自动生成盘点明细（账面数 book_qty 取创建时点库存），权限标识 perms：sys:stocktake:add。单号按 PD+yyyyMMdd+3 位序号自动生成；业务错误：40904 单号重复、40905 重复提交。"
+      tags:
+        - 库存盘点
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StocktakeOrderCreateRequest'
+            example: {warehouseId: 1, areaId: 1, scope: 按库区, planDate: '2026-11-10', remark: A 区月度盘点}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}:
+    get:
+      operationId: getStocktakeById
+      summary: 盘点单详情
+      description: "查询盘点单详情（含明细 items 与差异数），权限标识 perms：sys:stocktake:list。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Stocktake'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateStocktake
+      summary: 录入/更新实盘数
+      description: "录入或更新盘点明细实盘数（仅草稿 0），权限标识 perms：sys:stocktake:edit。按明细差异 differ_qty=actual_qty-book_qty 计算；业务错误：40901 状态不允许。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StocktakeOrderUpdateRequest'
+            example: {items: [{id: 1001, actualQty: 98.000, diffReason: 破损}, {id: 1002, actualQty: 50.000}]}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteStocktake
+      summary: 删除盘点单
+      description: "删除盘点单（仅草稿 0），权限标识 perms：sys:stocktake:delete。业务错误：40901 状态不允许。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}/submit:
+    put:
+      operationId: submitStocktake
+      summary: 盘点单提交
+      description: "提交盘点单至待审核（0→1），权限标识 perms：sys:stocktake:submit。业务错误：40901 状态不允许、40905 重复提交。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}/audit:
+    put:
+      operationId: auditStocktake
+      summary: 盘点单审核
+      description: "审核盘点差异（1→2，由主管授权差异），权限标识 perms：sys:stocktake:audit。body 可含 remark。业务错误：40901 状态不允许。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditRequest'
+            example: {remark: 差异合理，同意过账}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}/reject:
+    put:
+      operationId: rejectStocktake
+      summary: 盘点单驳回
+      description: "驳回盘点单（1→4），权限标识 perms：sys:stocktake:reject。reason 必填。业务错误：40901 状态不允许。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+            example: {reason: 差异过大，请复盘}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}/post:
+    put:
+      operationId: postStocktake
+      summary: 盘点单过账
+      description: "过账盘点单（2→3），按差异调整库存（盘盈增、盘亏减）并写对应流水，权限标识 perms：sys:stocktake:post。业务错误：40901 状态不允许、40902 库存不足（盘亏超库存）、40907 盘点期间并发过账冲突。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}/cancel:
+    put:
+      operationId: cancelStocktake
+      summary: 盘点单取消
+      description: "取消盘点单（0/1/4→5，终态），权限标识 perms：sys:stocktake:cancel。业务错误：40901 状态不允许。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stocktakes/{id}/withdraw:
+    put:
+      operationId: withdrawStocktake
+      summary: 盘点单撤回
+      description: "撤回盘点单至草稿（1/4→0），权限标识 perms：sys:stocktake:withdraw。业务错误：40901 状态不允许。"
+      tags:
+        - 库存盘点
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 库存预警（API-ALR-001~008）=====
+  /api/alert-rules:
+    get:
+      operationId: listAlertRules
+      summary: 预警规则分页查询
+      description: "预警规则分页查询，权限标识 perms：sys:alert:rule:list。支持 alertType/status/warehouseId 过滤。"
+      tags:
+        - 库存预警
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: alertType, in: query, description: 预警类型（LOW_STOCK/HIGH_STOCK/NEAR_EXPIRY/EXPIRED）, schema: {type: string, example: LOW_STOCK}}
+        - {name: status, in: query, description: 状态（0 停用 1 启用）, schema: {type: integer, format: int32, example: 1}}
+        - {name: warehouseId, in: query, description: 仓库 id（空表示全部仓库）, schema: {type: integer, format: int64, example: 1}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_AlertRulePage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    post:
+      operationId: createAlertRule
+      summary: 创建预警规则
+      description: "创建库存预警规则，权限标识 perms：sys:alert:rule:add。业务错误：40904 编码已存在。"
+      tags:
+        - 库存预警
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRule'
+            example: {ruleName: 纸巾类低于下限预警, warehouseId: 1, categoryId: 1, alertType: LOW_STOCK, minQty: 100.000, status: 1, remark: 每日扫描}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/alert-rules/{id}:
+    get:
+      operationId: getAlertRuleById
+      summary: 预警规则详情
+      description: "按 id 查询预警规则详情，权限标识 perms：sys:alert:rule:list。"
+      tags:
+        - 库存预警
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_AlertRule'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    put:
+      operationId: updateAlertRule
+      summary: 编辑预警规则
+      description: "编辑预警规则，权限标识 perms：sys:alert:rule:edit。"
+      tags:
+        - 库存预警
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRule'
+            example: {ruleName: 纸巾类低于下限预警, warehouseId: 1, categoryId: 1, alertType: LOW_STOCK, minQty: 150.000, status: 1, remark: 每日扫描}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+    delete:
+      operationId: deleteAlertRule
+      summary: 删除预警规则
+      description: "删除预警规则（逻辑删除），权限标识 perms：sys:alert:rule:delete。业务错误：40901 存在未处理预警记录时不可删除。"
+      tags:
+        - 库存预警
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/alerts:
+    get:
+      operationId: listAlerts
+      summary: 预警记录分页查询
+      description: "库存预警记录分页查询，权限标识 perms：sys:alert:list。支持 alertType/status/warehouseId/level 过滤。"
+      tags:
+        - 库存预警
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: alertType, in: query, description: 预警类型（LOW_STOCK/HIGH_STOCK/NEAR_EXPIRY/EXPIRED）, schema: {type: string, example: NEAR_EXPIRY}}
+        - {name: status, in: query, description: 处理状态（0 未处理 1 已处理）, schema: {type: integer, format: int32, example: 0}}
+        - {name: warehouseId, in: query, description: 仓库 id, schema: {type: integer, format: int64, example: 1}}
+        - {name: level, in: query, description: 预警级别（提示/警告/严重）, schema: {type: string, example: 警告}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_AlertRecordPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/alerts/{id}/handle:
+    put:
+      operationId: handleAlert
+      summary: 处理预警
+      description: "处理预警记录（未处理→已处理），权限标识 perms：sys:alert:handle。业务错误：40901 状态不允许（已处理不可重复处理）。"
+      tags:
+        - 库存预警
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertHandleRequest'
+            example: {handleRemark: 已补货，库存恢复至安全线}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/alerts/scan:
+    post:
+      operationId: scanAlerts
+      summary: 手动触发预警扫描
+      description: "手动触发预警规则扫描并生成预警记录（可选接口，正常由每日定时任务执行），权限标识 perms：sys:alert:scan。"
+      tags:
+        - 库存预警
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertScanRequest'
+            example: {warehouseId: 1}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 数据统计（API-STS-001~006）=====
+  /api/stats/dashboard:
+    get:
+      operationId: getDashboard
+      summary: 首页看板汇总
+      description: "首页数据看板汇总数据（库存、单据、预警等指标），权限标识 perms：sys:stats:list。"
+      tags:
+        - 数据统计
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Dashboard'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stats/inbound-outbound-trend:
+    get:
+      operationId: getInOutTrend
+      summary: 出入库趋势
+      description: "按天统计出入库数量趋势，权限标识 perms：sys:stats:list。days 可选，默认 30（基线示例 ?days=30）。"
+      tags:
+        - 数据统计
+      parameters:
+        - {name: days, in: query, required: false, description: 统计最近 N 天（基线示例 days=30，可选，默认 30）, schema: {type: integer, format: int32, default: 30, example: 30}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Trend'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stats/category-distribution:
+    get:
+      operationId: getCategoryDistribution
+      summary: 库存分类分布
+      description: "库存按商品分类分布（供饼图），权限标识 perms：sys:stats:list。"
+      tags:
+        - 数据统计
+      responses:
+        '200': {$ref: '#/components/responses/Ok_CategoryDist'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stats/warehouse-occupancy:
+    get:
+      operationId: getWarehouseOccupancy
+      summary: 仓库货位利用率
+      description: "各仓库货位利用率统计（已占用/总货位），权限标识 perms：sys:stats:list。"
+      tags:
+        - 数据统计
+      responses:
+        '200': {$ref: '#/components/responses/Ok_Occupancy'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stats/top-products:
+    get:
+      operationId: getTopProducts
+      summary: 出入库 Top 商品
+      description: "按出入库数量排名的 Top 商品列表，权限标识 perms：sys:stats:list。limit 可选，默认 10（基线示例 ?limit=10）。"
+      tags:
+        - 数据统计
+      parameters:
+        - {name: limit, in: query, required: false, description: 返回条数（基线示例 limit=10，可选，默认 10）, schema: {type: integer, format: int32, default: 10, example: 10}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_TopProducts'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/stats/stock-aging:
+    get:
+      operationId: getStockAging
+      summary: 库存账龄/滞销
+      description: "库存账龄与滞销分析（可选接口），权限标识 perms：sys:stats:list。待确认：账龄分档口径与滞销判定天数。"
+      tags:
+        - 数据统计
+      responses:
+        '200': {$ref: '#/components/responses/Ok_StockAging'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+  # ===== 操作日志（API-OPL-001~002）=====
+  /api/logs:
+    get:
+      operationId: listLogs
+      summary: 操作日志分页查询
+      description: "操作日志分页查询，权限标识 perms：sys:log:list。支持 module/status/keyword/startDate/endDate 过滤；请求参数已脱敏存储。"
+      tags:
+        - 操作日志
+      parameters:
+        - $ref: '#/components/parameters/pageNum'
+        - $ref: '#/components/parameters/pageSize'
+        - {name: module, in: query, description: 模块名精确过滤, schema: {type: string, example: 入库管理}}
+        - {name: status, in: query, description: 操作状态（0 失败 1 成功）, schema: {type: integer, format: int32, example: 1}}
+        - {name: keyword, in: query, description: 模糊关键字（操作人/标题）, schema: {type: string, example: 张}}
+        - {name: startDate, in: query, description: 操作开始日期（yyyy-MM-dd）, schema: {type: string, format: date, example: '2026-11-01'}}
+        - {name: endDate, in: query, description: 操作结束日期（yyyy-MM-dd）, schema: {type: string, format: date, example: '2026-11-06'}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok_LogPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+  /api/logs/{id}:
+    get:
+      operationId: getLogById
+      summary: 操作日志详情
+      description: "按 id 查询操作日志详情（含请求参数与响应结果），权限标识 perms：sys:log:list。"
+      tags:
+        - 操作日志
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': {$ref: '#/components/responses/Ok_OperLog'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/ServerError'}
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT 访问令牌。Header 格式：Authorization: Bearer <accessToken>；access token 有效期 2 小时，refresh token 7 天；仅 /api/auth/login 与 /api/auth/refresh 免认证（security: []）。"
+  parameters:
+    pageNum:
+      name: pageNum
+      in: query
+      description: 页码，从 1 开始，小于 1 时按 1 处理，默认 1
+      schema: {type: integer, format: int32, default: 1, example: 1}
+    pageSize:
+      name: pageSize
+      in: query
+      description: 每页条数，默认 20，最大 100，超过 100 时按 100 处理
+      schema: {type: integer, format: int32, default: 20, maximum: 100, example: 20}
+    IdPath:
+      name: id
+      in: path
+      required: true
+      description: 资源主键 id
+      schema: {type: integer, format: int64, example: 1}
+  responses:
+    # ---- 通用错误响应 ----
+    Unauthorized:
+      description: 401 未认证或 Token 过期（code=401，业务码如 40101/40102/40103）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 401, message: 认证失败，Token 已过期，请重新登录, data: null, timestamp: '2026-11-06 16:00:00'}
+    Forbidden:
+      description: 403 无权限（code=403，业务码如 40301 功能权限不足、40302 数据仓库权限越权）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 403, message: 无权限访问该资源或数据仓库越权, data: null, timestamp: '2026-11-06 16:00:00'}
+    BadRequest:
+      description: 400 参数校验失败（body.code=40001，返回首个字段的中文错误提示）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 40001, message: password 至少 8 位且需包含字母与数字, data: null, timestamp: '2026-11-09 16:30:00'}
+    Conflict:
+      description: 409 业务冲突（单据状态/唯一性/并发等 5 位业务错误码 40001~50001；待确认：实现时业务错误 HTTP 状态码统一口径）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 40901, message: 当前单据状态不允许该操作, data: null, timestamp: '2026-11-06 16:00:00'}
+    ServerError:
+      description: 500 系统异常（code=500，50001 执行失败 50002 资源不存在）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example: {code: 500, message: 系统繁忙，请稍后重试, data: null, timestamp: '2026-11-06 16:00:00'}
+    # ---- 通用成功响应 ----
+    Ok_Null:
+      description: 操作成功（data 为 null；待确认：创建类接口是否返回新建资源 id）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Result'
+          example: {code: 200, message: 操作成功, data: null, timestamp: '2026-11-06 16:00:00'}
+    # ---- 认证/用户 ----
+    Ok_Login:
+      description: 登录/刷新令牌成功（data 为 LoginResponse）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/LoginResponse'}}}
+          example: {code: 200, message: 登录成功, data: {accessToken: eyJhbGciOiJIUzI1NiJ9.xxx, refreshToken: eyJhbGciOiJIUzI1NiJ9.yyy, expiresIn: 7200, tokenType: Bearer}, timestamp: '2026-11-06 16:00:00'}
+    Ok_AuthInfo:
+      description: 当前用户信息、菜单与按钮权限（data 为 AuthInfo）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/AuthInfo'}}}
+          example: {code: 200, message: 操作成功, data: {user: {id: 1, username: admin, realName: 超级管理员}, menus: [], perms: [sys:user:list, sys:user:add], roles: [ROLE_ADMIN]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_UserWarehouses:
+      description: 用户已授权仓库列表（data 为 Option 数组，id 为仓库 id）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/Option'}}}}
+          example: {code: 200, message: 操作成功, data: [{id: 1, name: 华东一仓}, {id: 2, name: 华南一仓}], timestamp: '2026-11-06 16:00:00'}
+    Ok_Options:
+      description: 下拉选项列表（data 为 Option 数组，name 为对应显示名）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/Option'}}}}
+          example: {code: 200, message: 操作成功, data: [{id: 1, name: 华东一仓}, {id: 2, name: 华南一仓}], timestamp: '2026-11-06 16:00:00'}
+    # ---- 树结构 ----
+    Ok_MenuTree:
+      description: 菜单树（data 为菜单根节点数组，children 递归）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/MenuTree'}}}
+          example: {code: 200, message: 操作成功, data: [{id: 1, menuName: 系统管理, menuType: C, sort: 1}], timestamp: '2026-11-06 16:00:00'}
+    Ok_DeptTree:
+      description: 部门树（data 为部门根节点数组，children 递归）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/DeptTree'}}}
+          example: {code: 200, message: 操作成功, data: [{id: 1, deptName: 总公司, parentId: 0}], timestamp: '2026-11-06 16:00:00'}
+    Ok_CategoryTree:
+      description: 商品分类树（data 为分类根节点数组，children 递归）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/CategoryTree'}}}
+          example: {code: 200, message: 操作成功, data: [{id: 1, categoryName: 日用百货, level: 1}], timestamp: '2026-11-06 16:00:00'}
+    # ---- 分页响应 ----
+    Ok_UserPage:
+      description: 成功，data 为用户分页（PageResult<User>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/UserPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 1, pageNum: 1, pageSize: 20, list: [{id: 1, username: zhangsan, realName: 张三, status: 1}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_RolePage:
+      description: 成功，data 为角色分页（PageResult<Role>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/RolePage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 2, pageNum: 1, pageSize: 20, list: [{id: 1, roleName: 超级管理员, roleKey: ROLE_ADMIN}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_LogPage:
+      description: 成功，data 为操作日志分页（PageResult<OperLog>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/LogPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 100, pageNum: 1, pageSize: 20, list: [{id: 1, module: 入库管理, title: 创建入库单, status: 1}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_WarehousePage:
+      description: 成功，data 为仓库分页（PageResult<Warehouse>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/WarehousePage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 2, pageNum: 1, pageSize: 20, list: [{id: 1, warehouseCode: WH-001, warehouseName: 华东一仓, status: 1}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_AreaPage:
+      description: 成功，data 为库区分页（PageResult<StorageArea>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/AreaPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 3, pageNum: 1, pageSize: 20, list: [{id: 1, areaCode: QY-01, areaName: A 存储区}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_RackPage:
+      description: 成功，data 为货架分页（PageResult<Rack>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/RackPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 10, pageNum: 1, pageSize: 20, list: [{id: 1, rackCode: JH-01, rackName: 1 号货架}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_LocationPage:
+      description: 成功，data 为货位分页（PageResult<Location>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/LocationPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 500, pageNum: 1, pageSize: 20, list: [{id: 1, locationCode: HW-010101, currentStatus: 空闲}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_ProductPage:
+      description: 成功，data 为商品分页（PageResult<Product>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/ProductPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 128, pageNum: 1, pageSize: 20, list: [{id: 1, productCode: P-0001, productName: 抽纸 120 抽}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_SupplierPage:
+      description: 成功，data 为供应商分页（PageResult<Supplier>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/SupplierPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 20, pageNum: 1, pageSize: 20, list: [{id: 1, supplierCode: S-001, supplierName: 华润商贸有限公司}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_CustomerPage:
+      description: 成功，data 为客户分页（PageResult<Customer>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/CustomerPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 15, pageNum: 1, pageSize: 20, list: [{id: 1, customerCode: C-001, customerName: 永辉超市股份有限公司}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_InboundPage:
+      description: 成功，data 为入库单分页（PageResult<InboundOrder>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/InboundPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 36, pageNum: 1, pageSize: 20, list: [{id: 1, inboundNo: RK20261106001, status: 1, totalQty: 100.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_OutboundPage:
+      description: 成功，data 为出库单分页（PageResult<OutboundOrder>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/OutboundPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 42, pageNum: 1, pageSize: 20, list: [{id: 1, outboundNo: CK20261106001, status: 1, totalQty: 50.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_InventoryPage:
+      description: 成功，data 为库存分页（PageResult<Inventory>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/InventoryPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 260, pageNum: 1, pageSize: 20, list: [{id: 1, warehouseId: 1, productId: 1, batchNo: B2026110601, qty: 100.000, lockQty: 0.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_FlowPage:
+      description: 成功，data 为库存流水分页（PageResult<StockFlow>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/FlowPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 1000, pageNum: 1, pageSize: 20, list: [{id: 1, flowNo: LS20261106001, direction: 1, qty: 100.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_TransferPage:
+      description: 成功，data 为调拨单分页（PageResult<TransferOrder>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/TransferPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 12, pageNum: 1, pageSize: 20, list: [{id: 1, transferNo: DB20261106001, status: 1, totalQty: 20.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_StocktakePage:
+      description: 成功，data 为盘点单分页（PageResult<StocktakeOrder>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/StocktakePage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 8, pageNum: 1, pageSize: 20, list: [{id: 1, stocktakeNo: PD20261106001, status: 1}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_AlertRulePage:
+      description: 成功，data 为预警规则分页（PageResult<AlertRule>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/AlertRulePage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 6, pageNum: 1, pageSize: 20, list: [{id: 1, ruleName: 低于下限预警, alertType: LOW_STOCK, status: 1}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_AlertRecordPage:
+      description: 成功，data 为预警记录分页（PageResult<AlertRecord>）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/AlertRecordPage'}}}
+          example: {code: 200, message: 操作成功, data: {total: 18, pageNum: 1, pageSize: 20, list: [{id: 1, alertType: LOW_STOCK, level: 警告, status: 0}]}, timestamp: '2026-11-06 16:00:00'}
+    # ---- 详情对象响应 ----
+    Ok_User:
+      description: 成功，data 为用户详情
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/User'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, username: zhangsan, realName: 张三, status: 1}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Role:
+      description: 成功，data 为角色详情（含 menuIds）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/Role'}}}
+          example: {code: 200, message: 操作成功, data: {id: 2, roleName: 仓库主管, roleKey: ROLE_MANAGER, menuIds: [100, 101]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Warehouse:
+      description: 成功，data 为仓库详情
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/Warehouse'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, warehouseCode: WH-001, warehouseName: 华东一仓, status: 1}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Product:
+      description: 成功，data 为商品详情
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/Product'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, productCode: P-0001, productName: 抽纸 120 抽, unit: 包, status: 1}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Inbound:
+      description: 成功，data 为入库单详情（含明细 items）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/InboundOrder'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, inboundNo: RK20261106001, status: 1, totalQty: 100.000, items: [{id: 11, lineNo: 1, productId: 1, planQty: 100.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Outbound:
+      description: 成功，data 为出库单详情（含明细 items）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/OutboundOrder'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, outboundNo: CK20261106001, status: 1, totalQty: 50.000, items: [{id: 11, lineNo: 1, productId: 1, planQty: 50.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Transfer:
+      description: 成功，data 为调拨单详情（含明细 items）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/TransferOrder'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, transferNo: DB20261106001, status: 1, totalQty: 20.000, items: [{id: 11, productId: 1, planQty: 20.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Stocktake:
+      description: 成功，data 为盘点单详情（含明细 items 与差异）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/StocktakeOrder'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, stocktakeNo: PD20261106001, status: 1, items: [{id: 11, bookQty: 100.000, actualQty: 98.000, differQty: -2.000}]}, timestamp: '2026-11-06 16:00:00'}
+    Ok_AlertRule:
+      description: 成功，data 为预警规则详情
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/AlertRule'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, ruleName: 低于下限预警, alertType: LOW_STOCK, status: 1}, timestamp: '2026-11-06 16:00:00'}
+    Ok_OperLog:
+      description: 成功，data 为操作日志详情
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/OperLog'}}}
+          example: {code: 200, message: 操作成功, data: {id: 1, module: 入库管理, title: 创建入库单, status: 1, costTime: 35}, timestamp: '2026-11-06 16:00:00'}
+    # ---- 汇总/统计响应 ----
+    Ok_InventorySummary:
+      description: 成功，data 为库存汇总项数组
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/InventorySummaryItem'}}}}
+          example: {code: 200, message: 操作成功, data: [{warehouseName: 华东一仓, categoryName: 日用百货, totalQty: 1200.000, skuCount: 36}], timestamp: '2026-11-06 16:00:00'}
+    Ok_Dashboard:
+      description: 成功，data 为首页看板汇总数据
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {$ref: '#/components/schemas/DashboardData'}}}
+          example: {code: 200, message: 操作成功, data: {totalSku: 128, totalQty: 25600.000, todayInbound: 6, todayOutbound: 8, pendingAudit: 3, pendingAlerts: 5}, timestamp: '2026-11-06 16:00:00'}
+    Ok_Trend:
+      description: 成功，data 为出入库趋势点数组
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/TrendPoint'}}}}
+          example: {code: 200, message: 操作成功, data: [{date: 2026-11-05, inboundQty: 300.000, outboundQty: 250.000}], timestamp: '2026-11-06 16:00:00'}
+    Ok_CategoryDist:
+      description: 成功，data 为库存分类分布项数组
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/CategoryDistItem'}}}}
+          example: {code: 200, message: 操作成功, data: [{categoryName: 日用百货, totalQty: 8000.000, proportion: 35.5}], timestamp: '2026-11-06 16:00:00'}
+    Ok_Occupancy:
+      description: 成功，data 为货位利用率项数组
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/OccupancyItem'}}}}
+          example: {code: 200, message: 操作成功, data: [{warehouseId: 1, warehouseName: 华东一仓, totalLocations: 500, usedLocations: 320, occupancyRate: 64.0}], timestamp: '2026-11-06 16:00:00'}
+    Ok_TopProducts:
+      description: 成功，data 为出入库 Top 商品项数组
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/TopProductItem'}}}}
+          example: {code: 200, message: 操作成功, data: [{rank: 1, productId: 1, productName: 抽纸 120 抽, totalQty: 5000.000}], timestamp: '2026-11-06 16:00:00'}
+    Ok_StockAging:
+      description: 成功，data 为库存账龄/滞销项数组（待确认：分档口径）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Result'
+              - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/StockAgingItem'}}}}
+  schemas:
+    # ---- 核心结构 ----
+    Result:
+      type: object
+      description: 统一响应信封（所有接口最外层结构）
+      properties:
+        code: {type: integer, format: int32, description: 业务状态码。200 成功、400 参数校验、401 未认证、403 无权限、404 不存在、500 系统异常；业务错误为 5 位码（40001~50001）, example: 200}
+        message: {type: string, description: 提示信息, example: 操作成功}
+        data: {description: 业务数据（对象或数组），失败时为 null；OpenAPI 3.0 无联合类型故未标注 type, nullable: true, example: null}
+        timestamp: {type: string, description: 响应时间，格式 yyyy-MM-dd HH:mm:ss（响应中序列化为该格式字符串）, example: '2026-11-06 16:00:00'}
+    PageResult:
+      type: object
+      description: 分页数据结构（位于 Result.data 内；请求参数 pageNum/pageSize）
+      properties:
+        total: {type: integer, format: int64, description: 总记录数, example: 100}
+        pageNum: {type: integer, format: int32, description: 当前页码，从 1 开始, example: 1}
+        pageSize: {type: integer, format: int32, description: 每页条数，默认 20 最大 100, example: 20}
+        list: {type: array, description: 当前页数据（具体元素类型见各 XxxPage 定义）, items: {type: object}}
+    ErrorResponse:
+      type: object
+      description: 错误响应结构（信封与 Result 一致）。错误码：40001 参数校验失败、40101 账号或密码错误、40102 账号已停用、40103 令牌无效、40301 功能权限不足、40302 数据仓库权限越权、40401 资源不存在、40901 单据状态不允许、40902 库存不足、40903 库存不能为负、40904 编码已存在、40905 重复提交、40906 货位状态不可用、40907 盘点过账并发冲突、40910 无数据权限、40911 过账锁获取超时、50001 执行失败、50002 资源不存在
+      properties:
+        code: {type: integer, format: int32, description: 错误状态码或 5 位业务错误码, example: 40901}
+        message: {type: string, description: 错误提示信息, example: 当前单据状态不允许该操作}
+        data: {description: 失败时恒为 null, nullable: true, example: null}
+        timestamp: {type: string, description: 响应时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+    Option:
+      type: object
+      description: 下拉选项通用结构（各 /options 接口 data 元素）
+      properties:
+        id: {type: integer, format: int64, description: 选项主键 id, example: 1}
+        name: {type: string, description: 显示名（对应各实体名称字段，如 warehouseName/productName）, example: 华东一仓}
+        code: {type: string, description: 业务编码（可选，如 warehouseCode/productCode）, example: WH-001}
+    # ---- 树结构 ----
+    MenuTree:
+      type: array
+      description: 菜单树根节点数组（子节点在 children 字段递归）
+      items: {$ref: '#/components/schemas/Menu'}
+    DeptTree:
+      type: array
+      description: 部门树根节点数组（子节点在 children 字段递归）
+      items: {$ref: '#/components/schemas/Dept'}
+    CategoryTree:
+      type: array
+      description: 商品分类树根节点数组（子节点在 children 字段递归）
+      items: {$ref: '#/components/schemas/ProductCategory'}
+    # ---- 分页封装（PageResult + 类型化 list）----
+    UserPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 用户列表, items: {$ref: '#/components/schemas/User'}}
+    RolePage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 角色列表, items: {$ref: '#/components/schemas/Role'}}
+    LogPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 操作日志列表, items: {$ref: '#/components/schemas/OperLog'}}
+    WarehousePage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 仓库列表, items: {$ref: '#/components/schemas/Warehouse'}}
+    AreaPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 库区列表, items: {$ref: '#/components/schemas/StorageArea'}}
+    RackPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 货架列表, items: {$ref: '#/components/schemas/Rack'}}
+    LocationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 货位列表, items: {$ref: '#/components/schemas/Location'}}
+    ProductPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 商品列表, items: {$ref: '#/components/schemas/Product'}}
+    SupplierPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 供应商列表, items: {$ref: '#/components/schemas/Supplier'}}
+    CustomerPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 客户列表, items: {$ref: '#/components/schemas/Customer'}}
+    InboundPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 入库单列表, items: {$ref: '#/components/schemas/InboundOrder'}}
+    OutboundPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 出库单列表, items: {$ref: '#/components/schemas/OutboundOrder'}}
+    InventoryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 库存记录列表, items: {$ref: '#/components/schemas/Inventory'}}
+    FlowPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 库存流水列表, items: {$ref: '#/components/schemas/StockFlow'}}
+    TransferPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 调拨单列表, items: {$ref: '#/components/schemas/TransferOrder'}}
+    StocktakePage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 盘点单列表, items: {$ref: '#/components/schemas/StocktakeOrder'}}
+    AlertRulePage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 预警规则列表, items: {$ref: '#/components/schemas/AlertRule'}}
+    AlertRecordPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResult'
+        - type: object
+          properties:
+            list: {type: array, description: 预警记录列表, items: {$ref: '#/components/schemas/AlertRecord'}}
+    # ---- 认证 ----
+    LoginRequest:
+      type: object
+      description: 登录请求体
+      required: [username, password]
+      properties:
+        username: {type: string, description: 登录账号, example: admin}
+        password: {type: string, description: 明文密码（登录校验，传输仅限 HTTPS/本地）, example: 'Abc@123456'}
+    RegisterRequest:
+      type: object
+      description: 用户注册请求体（API-AUTH-005，编码阶段新增）
+      required: [username, password, realName]
+      properties:
+        username: {type: string, description: 登录账号（2~50 字符，唯一）, minLength: 2, maxLength: 50, example: zhangsan}
+        password: {type: string, description: 明文密码（至少 8 位且含字母与数字，BCrypt 存储）, minLength: 8, example: 'Zhangsan@123'}
+        realName: {type: string, description: 真实姓名（不超过 50 字符）, maxLength: 50, example: 张三}
+        phone: {type: string, description: 手机号（可选，填写时须为 11 位）, pattern: '^1\d{10}$', example: '13800138000'}
+    RefreshRequest:
+      type: object
+      description: 刷新令牌请求体
+      required: [refreshToken]
+      properties:
+        refreshToken: {type: string, description: 登录时获取的 refresh token（7 天有效）, example: eyJhbGciOiJIUzI1NiJ9.refresh.xxx}
+    LoginResponse:
+      type: object
+      description: 登录/刷新令牌响应体
+      properties:
+        accessToken: {type: string, description: 访问令牌（有效期 2 小时，放入 Authorization 头）, example: eyJhbGciOiJIUzI1NiJ9.xxx}
+        refreshToken: {type: string, description: 刷新令牌（有效期 7 天）, example: eyJhbGciOiJIUzI1NiJ9.yyy}
+        expiresIn: {type: integer, format: int32, description: access token 有效期（秒）, example: 7200}
+        tokenType: {type: string, description: 令牌类型，固定 Bearer, example: Bearer}
+    AuthInfo:
+      type: object
+      description: 当前登录用户信息、菜单与权限集合（/api/auth/info 响应 data）
+      properties:
+        user: {$ref: '#/components/schemas/User'}
+        menus: {type: array, description: 可访问菜单树（按角色过滤）, items: {$ref: '#/components/schemas/Menu'}}
+        perms: {type: array, description: 按钮权限标识集合（如 sys:user:add）, items: {type: string, example: sys:user:add}}
+        roles: {type: array, description: 角色标识集合（roleKey）, items: {type: string, example: ROLE_ADMIN}}
+    # ---- 系统管理实体 ----
+    User:
+      type: object
+      description: 用户（sys_user，字段 camelCase；响应不含 password）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        username: {type: string, description: 登录账号（唯一）, example: zhangsan}
+        realName: {type: string, description: 真实姓名, example: 张三}
+        phone: {type: string, description: 手机号, example: '13800138000'}
+        email: {type: string, description: 邮箱, format: email, example: zhangsan@example.com}
+        deptId: {type: integer, format: int64, description: 部门 id, example: 1}
+        deptName: {type: string, description: 部门名称（联查冗余，响应展示用）, example: 仓储部}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        loginDate: {type: string, description: 最后登录时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 09:30:00'}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        createBy: {type: integer, format: int64, description: 创建人 id, example: 1}
+        updateBy: {type: integer, format: int64, description: 更新人 id, example: 1}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    UserCreateRequest:
+      type: object
+      description: 创建用户请求体
+      required: [username, password, realName]
+      properties:
+        username: {type: string, description: 登录账号（唯一，2~20 位）, example: zhangsan}
+        password: {type: string, description: 初始密码（服务端 BCrypt 加密存储）, example: 'Abc@123456'}
+        realName: {type: string, description: 真实姓名, example: 张三}
+        phone: {type: string, description: 手机号, example: '13800138000'}
+        email: {type: string, description: 邮箱, example: zhangsan@example.com}
+        deptId: {type: integer, format: int64, description: 部门 id, example: 1}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常，默认 1）, example: 1}
+    UserUpdateRequest:
+      type: object
+      description: 编辑用户请求体（username 不可修改）
+      required: [realName]
+      properties:
+        realName: {type: string, description: 真实姓名, example: 张三}
+        phone: {type: string, description: 手机号, example: '13800138000'}
+        email: {type: string, description: 邮箱, example: zhangsan@example.com}
+        deptId: {type: integer, format: int64, description: 部门 id, example: 1}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+    UserStatusRequest:
+      type: object
+      description: 启用/停用用户请求体
+      required: [status]
+      properties:
+        status: {type: integer, format: int32, description: 目标状态（0 停用 1 正常）, example: 0}
+    UserPasswordRequest:
+      type: object
+      description: 重置密码请求体
+      required: [password]
+      properties:
+        password: {type: string, description: 新密码（BCrypt 加密存储）, example: 'Abc@123456'}
+    UserRoleGrantRequest:
+      type: object
+      description: 分配用户角色请求体（整体替换）
+      required: [roleIds]
+      properties:
+        roleIds: {type: array, description: 角色 id 集合, items: {type: integer, format: int64, example: 2}, example: [2, 3]}
+    UserWarehouseGrantRequest:
+      type: object
+      description: 分配用户数据仓库权限请求体（整体替换；admin 与 ROLE_VIEWER 不受限）
+      required: [warehouseIds]
+      properties:
+        warehouseIds: {type: array, description: 可见/可操作仓库 id 集合, items: {type: integer, format: int64, example: 1}, example: [1, 2]}
+    Role:
+      type: object
+      description: 角色（sys_role；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        roleName: {type: string, description: 角色名称, example: 仓库主管}
+        roleKey: {type: string, description: 角色标识（唯一，如 ROLE_MANAGER）, example: ROLE_MANAGER}
+        roleSort: {type: integer, format: int32, description: 显示顺序, example: 2}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        menuIds: {type: array, description: 已分配的菜单/按钮权限 id 集合（详情返回）, items: {type: integer, format: int64, example: 100}, example: [100, 101]}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    RoleMenuGrantRequest:
+      type: object
+      description: 分配角色菜单权限请求体（整体替换）
+      required: [menuIds]
+      properties:
+        menuIds: {type: array, description: 菜单/按钮权限 id 集合, items: {type: integer, format: int64, example: 100}, example: [100, 101, 102]}
+    Menu:
+      type: object
+      description: 菜单/按钮权限（sys_menu；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 100}
+        parentId: {type: integer, format: int64, description: 父菜单 id（根为 0）, example: 10}
+        menuName: {type: string, description: 菜单名称, example: 用户列表}
+        menuType: {type: string, description: 类型（C 目录 M 菜单 B 按钮）, example: M}
+        perms: {type: string, description: 权限标识（按钮必填，如 sys:user:add）, example: 'sys:user:list'}
+        path: {type: string, description: 路由地址（目录/菜单）, example: user}
+        component: {type: string, description: 前端组件路径, example: system/user/index}
+        icon: {type: string, description: 菜单图标, example: user}
+        sort: {type: integer, format: int32, description: 显示顺序, example: 1}
+        visible: {type: integer, format: int32, description: 是否可见（0 隐藏 1 显示）, example: 1}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        children: {type: array, description: 子菜单（树结构返回）, items: {$ref: '#/components/schemas/Menu'}}
+    Dept:
+      type: object
+      description: 部门（sys_dept；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        parentId: {type: integer, format: int64, description: 父部门 id（根为 0）, example: 0}
+        deptName: {type: string, description: 部门名称, example: 仓储部}
+        sort: {type: integer, format: int32, description: 显示顺序, example: 1}
+        ancestors: {type: string, description: "祖级列表（逗号分隔，如 0,1）", example: '0,1'}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        children: {type: array, description: 子部门（树结构返回）, items: {$ref: '#/components/schemas/Dept'}}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    OperLog:
+      type: object
+      description: 操作日志（sys_oper_log）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        module: {type: string, description: 模块名, example: 入库管理}
+        title: {type: string, description: 操作标题, example: 创建入库单}
+        method: {type: string, description: 后端方法签名, example: 'InboundController.create'}
+        requestMethod: {type: string, description: HTTP 请求方法, example: POST}
+        requestUrl: {type: string, description: 请求路径, example: '/api/inbounds'}
+        requestParams: {type: string, description: 请求参数（敏感字段已脱敏）, example: '{"warehouseId":1}'}
+        responseResult: {type: string, description: 响应结果摘要（已脱敏）, example: '{"code":200}'}
+        status: {type: integer, format: int32, description: 操作状态（0 失败 1 成功）, example: 1}
+        errorMsg: {type: string, description: "错误信息（失败时记录，待确认：无错误时是否为空串）", example: ''}
+        ip: {type: string, description: 操作人 IP, example: 192.168.1.100}
+        userId: {type: integer, format: int64, description: 操作人用户 id, example: 1}
+        username: {type: string, description: 操作人账号, example: admin}
+        costTime: {type: integer, format: int32, description: 耗时（毫秒）, example: 35}
+        operTime: {type: string, description: 操作时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+    # ---- 基础资料实体 ----
+    Warehouse:
+      type: object
+      description: 仓库（warehouse；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        warehouseCode: {type: string, description: 仓库编码（唯一，WH- 前缀）, example: WH-001}
+        warehouseName: {type: string, description: 仓库名称, example: 华东一仓}
+        address: {type: string, description: 仓库地址, example: 上海市青浦区徐泾镇}
+        contactName: {type: string, description: 联系人, example: 王强}
+        contactPhone: {type: string, description: 联系电话, example: '13900139000'}
+        areaSize: {type: number, format: double, description: 仓库面积（平方米，最多 2 位小数）, example: 6000.5}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        sort: {type: integer, format: int32, description: 显示顺序, example: 1}
+        remark: {type: string, description: 备注, example: 主仓}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    StorageArea:
+      type: object
+      description: 库区（storage_area；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        warehouseId: {type: integer, format: int64, description: 所属仓库 id, example: 1}
+        areaCode: {type: string, description: 库区编码（同仓库内唯一，QY- 前缀）, example: QY-01}
+        areaName: {type: string, description: 库区名称, example: A 存储区}
+        areaType: {type: string, description: 库区类型（存储区/拣货区/暂存区）, example: 存储区}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    Rack:
+      type: object
+      description: 货架（rack；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        warehouseId: {type: integer, format: int64, description: 所属仓库 id, example: 1}
+        areaId: {type: integer, format: int64, description: 所属库区 id, example: 1}
+        rackCode: {type: string, description: 货架编码（同库区内唯一，JH- 前缀）, example: JH-01}
+        rackName: {type: string, description: 货架名称, example: 1 号货架}
+        floorCount: {type: integer, format: int32, description: 层数, example: 5}
+        columnCount: {type: integer, format: int32, description: 列数, example: 10}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    Location:
+      type: object
+      description: 货位（location，仓库→库区→货架→货位四级；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        warehouseId: {type: integer, format: int64, description: 所属仓库 id, example: 1}
+        areaId: {type: integer, format: int64, description: 所属库区 id, example: 1}
+        rackId: {type: integer, format: int64, description: 所属货架 id, example: 1}
+        locationCode: {type: string, description: 货位编码（全局唯一，HW- 前缀）, example: HW-010101}
+        locationName: {type: string, description: 货位名称, example: 1-1-1 货位}
+        locationType: {type: string, description: 货位类型（存储位/拣货位/暂存位/收货位）, example: 存储位}
+        capacityVolume: {type: number, format: double, description: 容积上限（立方米，最多 3 位小数）, example: 2.5}
+        currentStatus: {type: string, description: 货位状态（空闲/占用/锁定/禁用）, example: 空闲}
+        sort: {type: integer, format: int32, description: 显示顺序, example: 1}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    LocationBatchCreateRequest:
+      type: object
+      description: 批量生成货位请求体（按货架层数×列数生成）
+      required: [warehouseId, areaId, rackId, floorCount, columnCount]
+      properties:
+        warehouseId: {type: integer, format: int64, description: 所属仓库 id, example: 1}
+        areaId: {type: integer, format: int64, description: 所属库区 id, example: 1}
+        rackId: {type: integer, format: int64, description: 所属货架 id, example: 1}
+        floorCount: {type: integer, format: int32, description: 生成层数, example: 5}
+        columnCount: {type: integer, format: int32, description: 生成列数, example: 10}
+        locationType: {type: string, description: 货位类型（默认存储位）, example: 存储位}
+        capacityVolume: {type: number, format: double, description: 每个货位容积上限（立方米）, example: 2.5}
+        startNo: {type: integer, format: int32, description: 起始编号（默认 1）, example: 1}
+    ProductCategory:
+      type: object
+      description: 商品分类（product_category；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        parentId: {type: integer, format: int64, description: 父分类 id（根为 0）, example: 0}
+        categoryCode: {type: string, description: 分类编码（唯一，FL- 前缀）, example: FL-01}
+        categoryName: {type: string, description: 分类名称, example: 日用百货}
+        level: {type: integer, format: int32, description: 层级（根为 1）, example: 1}
+        sort: {type: integer, format: int32, description: 显示顺序, example: 1}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        children: {type: array, description: 子分类（树结构返回）, items: {$ref: '#/components/schemas/ProductCategory'}}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    Product:
+      type: object
+      description: 商品（product；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        productCode: {type: string, description: 商品编码（唯一，P- 前缀）, example: P-0001}
+        productName: {type: string, description: 商品名称, example: 抽纸 120 抽}
+        categoryId: {type: integer, format: int64, description: 商品分类 id, example: 1}
+        brand: {type: string, description: 品牌, example: 洁云}
+        unit: {type: string, description: 基本单位, example: 包}
+        spec: {type: string, description: 规格型号, example: 120 抽×10 包}
+        weight: {type: number, format: double, description: 重量（kg，最多 3 位小数）, example: 3.5}
+        volume: {type: number, format: double, description: 体积（立方米，最多 3 位小数）, example: 0.012}
+        shelfLifeFlag: {type: integer, format: int32, description: 是否保质期管理（0 否 1 是）, example: 0}
+        shelfLifeDays: {type: integer, format: int32, description: 保质期天数（启用保质期管理时必填）, example: 0}
+        batchFlag: {type: integer, format: int32, description: 是否批次管理（0 否 1 是）, example: 1}
+        minStock: {type: number, format: double, description: 安全库存下限（最多 3 位小数，预警规则依据）, example: 100}
+        maxStock: {type: number, format: double, description: 安全库存上限（最多 3 位小数）, example: 5000}
+        price: {type: number, format: double, description: 参考单价（元，最多 2 位小数）, example: 12.5}
+        imageUrl: {type: string, description: 商品图片地址, example: '/static/img/p0001.png'}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        remark: {type: string, description: 备注, example: 常销品}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    Supplier:
+      type: object
+      description: 供应商（supplier；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        supplierCode: {type: string, description: 供应商编码（唯一，S- 前缀）, example: S-001}
+        supplierName: {type: string, description: 供应商名称, example: 华润商贸有限公司}
+        contactName: {type: string, description: 联系人, example: 李四}
+        contactPhone: {type: string, description: 联系电话, example: '13700137000'}
+        email: {type: string, description: 邮箱, example: supplier@example.com}
+        address: {type: string, description: 地址, example: 江苏省南京市江宁区}
+        bankInfo: {type: string, description: 开户行及账号（财务信息，响应脱敏）, example: 中国银行南京支行 ****6220}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        remark: {type: string, description: 备注, example: 长期合作}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    Customer:
+      type: object
+      description: 客户（customer；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        customerCode: {type: string, description: 客户编码（唯一，C- 前缀）, example: C-001}
+        customerName: {type: string, description: 客户名称, example: 永辉超市股份有限公司}
+        contactName: {type: string, description: 联系人, example: 赵六}
+        contactPhone: {type: string, description: 联系电话, example: '13600136000'}
+        email: {type: string, description: 邮箱, example: customer@example.com}
+        address: {type: string, description: 地址, example: 福建省福州市鼓楼区}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 正常）, example: 1}
+        remark: {type: string, description: 备注, example: 战略客户}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    # ---- 入库/出库单据 ----
+    InboundOrder:
+      type: object
+      description: 入库单（inbound_order；详情返回 items 明细；单据与流水不做逻辑删除）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        inboundNo: {type: string, description: 入库单号（唯一，RK+yyyyMMdd+3 位序号）, example: RK20261106001}
+        orderType: {type: string, description: 单据类型（采购入库/调拨入库/退货入库/盘盈入库，对应库表 order_type 枚举 1/2/3/4；传参与返回均为中文枚举名，待确认：是否改为数字编码传递）, example: 采购入库}
+        supplierId: {type: integer, format: int64, description: 供应商 id, example: 1}
+        supplierName: {type: string, description: 供应商名称（联查冗余）, example: 华润商贸有限公司}
+        sourceOrderNo: {type: string, description: 来源单号（如采购单号）, example: PO20261106001}
+        expectDate: {type: string, format: date, description: 预计到货日期（yyyy-MM-dd）, example: '2026-11-08'}
+        status: {type: integer, format: int32, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, example: 1}
+        auditorId: {type: integer, format: int64, description: 审核人 id, example: 2}
+        auditTime: {type: string, description: 审核时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-07 10:00:00'}
+        posterId: {type: integer, format: int64, description: 过账人 id, example: 2}
+        postTime: {type: string, description: 过账时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-08 09:00:00'}
+        warehouseId: {type: integer, format: int64, description: 目标仓库 id, example: 1}
+        warehouseName: {type: string, description: 目标仓库名称（联查冗余）, example: 华东一仓}
+        totalQty: {type: number, format: double, description: 计划数量合计（自动计算，最多 3 位小数）, example: 100}
+        actualQty: {type: number, format: double, description: 实收数量合计（过账后回写，最多 3 位小数）, example: 100}
+        remark: {type: string, description: 备注, example: 例行采购}
+        version: {type: integer, format: int32, description: 乐观锁版本号, example: 0}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+        createBy: {type: integer, format: int64, description: 创建人 id, example: 1}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-07 10:00:00'}
+        updateBy: {type: integer, format: int64, description: 更新人 id, example: 1}
+        items: {type: array, description: 明细行（详情接口返回；待确认：列表接口是否返回 items）, items: {$ref: '#/components/schemas/InboundOrderItem'}}
+    InboundOrderItem:
+      type: object
+      description: 入库单明细行（inbound_order_item）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 11}
+        orderId: {type: integer, format: int64, description: 入库单 id, example: 1}
+        lineNo: {type: integer, format: int32, description: 行号, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码（联查冗余）, example: P-0001}
+        productName: {type: string, description: 商品名称（联查冗余）, example: 抽纸 120 抽}
+        locationId: {type: integer, format: int64, description: 上架货位 id, example: 1}
+        locationCode: {type: string, description: 货位编码（联查冗余）, example: HW-010101}
+        batchNo: {type: string, description: 批次号（商品启用批次管理时必填）, example: B2026110601}
+        productionDate: {type: string, format: date, description: 生产日期（yyyy-MM-dd）, example: '2026-11-01'}
+        expiryDate: {type: string, format: date, description: 过期日期（yyyy-MM-dd）, example: '2027-11-01'}
+        planQty: {type: number, format: double, description: 计划数量（最多 3 位小数）, example: 100}
+        actualQty: {type: number, format: double, description: 实收数量（过账回写，最多 3 位小数）, example: 100}
+        unit: {type: string, description: 单位, example: 包}
+        remark: {type: string, description: 行备注, example: 首批}
+    InboundOrderCreateRequest:
+      type: object
+      description: 创建/编辑入库单请求体（编辑接口 PUT /api/inbounds/{id} 复用本结构）
+      required: [orderType, warehouseId, items]
+      properties:
+        orderType: {type: string, description: 单据类型（采购入库/调拨入库/退货入库/盘盈入库，对应库表 order_type 枚举 1/2/3/4；传参与返回均为中文枚举名，待确认：是否改为数字编码传递）, example: 采购入库}
+        supplierId: {type: integer, format: int64, description: 供应商 id（采购/退货入库必填）, example: 1}
+        sourceOrderNo: {type: string, description: 来源单号, example: PO20261106001}
+        expectDate: {type: string, format: date, description: 预计到货日期（yyyy-MM-dd）, example: '2026-11-08'}
+        warehouseId: {type: integer, format: int64, description: 目标仓库 id, example: 1}
+        remark: {type: string, description: 备注, example: 例行采购}
+        items:
+          type: array
+          description: 入库明细行（至少 1 行）
+          minItems: 1
+          items: {$ref: '#/components/schemas/InboundOrderItemRequest'}
+    InboundOrderItemRequest:
+      type: object
+      description: 入库单明细行请求体
+      required: [productId, planQty]
+      properties:
+        lineNo: {type: integer, format: int32, description: 行号（不传由服务端生成）, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        locationId: {type: integer, format: int64, description: 上架货位 id（过账时校验 40906 货位状态不可用）, example: 1}
+        batchNo: {type: string, description: 批次号（商品 batchFlag=1 时必填，格式 B+yyyyMMdd+2 位序号）, example: B2026110601}
+        productionDate: {type: string, format: date, description: 生产日期（yyyy-MM-dd）, example: '2026-11-01'}
+        expiryDate: {type: string, format: date, description: 过期日期（yyyy-MM-dd，可由 shelfLifeDays 自动计算）, example: '2027-11-01'}
+        planQty: {type: number, format: double, description: 计划数量（最多 3 位小数，必须大于 0）, example: 100}
+        unit: {type: string, description: 单位（默认取商品基本单位）, example: 包}
+        remark: {type: string, description: 行备注, example: 首批}
+    OutboundOrder:
+      type: object
+      description: 出库单（outbound_order；详情返回 items 明细；单据与流水不做逻辑删除）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        outboundNo: {type: string, description: 出库单号（唯一，CK+yyyyMMdd+3 位序号）, example: CK20261106001}
+        orderType: {type: string, description: 单据类型（销售出库/调拨出库/退货出库/报损出库，对应库表 order_type 枚举 1/2/3/4；传参与返回均为中文枚举名，待确认：是否改为数字编码传递）, example: 销售出库}
+        customerId: {type: integer, format: int64, description: 客户 id, example: 1}
+        customerName: {type: string, description: 客户名称（联查冗余）, example: 永辉超市股份有限公司}
+        sourceOrderNo: {type: string, description: 来源单号（如销售订单号）, example: SO20261106001}
+        expectDate: {type: string, format: date, description: 预计出库日期（yyyy-MM-dd）, example: '2026-11-07'}
+        status: {type: integer, format: int32, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, example: 1}
+        auditorId: {type: integer, format: int64, description: 审核人 id, example: 2}
+        auditTime: {type: string, description: 审核时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-07 10:00:00'}
+        posterId: {type: integer, format: int64, description: 过账人 id, example: 2}
+        postTime: {type: string, description: 过账时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-07 14:00:00'}
+        warehouseId: {type: integer, format: int64, description: 出库仓库 id, example: 1}
+        totalQty: {type: number, format: double, description: 计划数量合计（自动计算，最多 3 位小数）, example: 50}
+        pickUserId: {type: integer, format: int64, description: 拣货员用户 id, example: 3}
+        remark: {type: string, description: 备注, example: 客户加急}
+        version: {type: integer, format: int32, description: 乐观锁版本号, example: 0}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+        createBy: {type: integer, format: int64, description: 创建人 id, example: 1}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-07 10:00:00'}
+        updateBy: {type: integer, format: int64, description: 更新人 id, example: 1}
+        items: {type: array, description: 明细行（详情接口返回；待确认：列表接口是否返回 items）, items: {$ref: '#/components/schemas/OutboundOrderItem'}}
+    OutboundOrderItem:
+      type: object
+      description: 出库单明细行（outbound_order_item；过账时按 FIFO 自动分配批次与货位）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 11}
+        orderId: {type: integer, format: int64, description: 出库单 id, example: 1}
+        lineNo: {type: integer, format: int32, description: 行号, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        batchId: {type: integer, format: int64, description: 批次 id（过账分配后回写）, example: 1001}
+        batchNo: {type: string, description: 批次号（过账分配后回写）, example: B2026110601}
+        locationId: {type: integer, format: int64, description: 拣货货位 id（过账分配后回写）, example: 1}
+        planQty: {type: number, format: double, description: 计划数量（最多 3 位小数）, example: 50}
+        actualQty: {type: number, format: double, description: 实发数量（过账回写，最多 3 位小数）, example: 50}
+        unit: {type: string, description: 单位, example: 包}
+        remark: {type: string, description: 行备注, example: FIFO 分配}
+    OutboundOrderCreateRequest:
+      type: object
+      description: 创建/编辑出库单请求体（编辑接口 PUT /api/outbounds/{id} 复用本结构）
+      required: [orderType, warehouseId, items]
+      properties:
+        orderType: {type: string, description: 单据类型（销售出库/调拨出库/退货出库/报损出库，对应库表 order_type 枚举 1/2/3/4；传参与返回均为中文枚举名，待确认：是否改为数字编码传递）, example: 销售出库}
+        customerId: {type: integer, format: int64, description: 客户 id（销售出库必填）, example: 1}
+        sourceOrderNo: {type: string, description: 来源单号, example: SO20261106001}
+        expectDate: {type: string, format: date, description: 预计出库日期（yyyy-MM-dd）, example: '2026-11-07'}
+        warehouseId: {type: integer, format: int64, description: 出库仓库 id, example: 1}
+        pickUserId: {type: integer, format: int64, description: 拣货员用户 id, example: 3}
+        remark: {type: string, description: 备注, example: 客户加急}
+        items:
+          type: array
+          description: 出库明细行（至少 1 行）
+          minItems: 1
+          items: {$ref: '#/components/schemas/OutboundOrderItemRequest'}
+    OutboundOrderItemRequest:
+      type: object
+      description: 出库单明细行请求体（提交时只填计划数量，过账按 FIFO 分配批次/货位）
+      required: [productId, planQty]
+      properties:
+        lineNo: {type: integer, format: int32, description: 行号（不传由服务端生成）, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        batchNo: {type: string, description: 指定批次号（可选，指定后仅扣该批次）, example: B2026110601}
+        locationId: {type: integer, format: int64, description: 指定拣货货位 id（可选）, example: 1}
+        planQty: {type: number, format: double, description: 计划数量（最多 3 位小数，必须大于 0）, example: 50}
+        unit: {type: string, description: 单位（默认取商品基本单位）, example: 包}
+        remark: {type: string, description: 行备注, example: 加急单}
+    # ---- 库存 ----
+    Inventory:
+      type: object
+      description: 库存记录（inventory，唯一维度 warehouse+location+product+batch；库存不做逻辑删除）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        warehouseId: {type: integer, format: int64, description: 仓库 id（强制查询维度）, example: 1}
+        locationId: {type: integer, format: int64, description: 货位 id, example: 1}
+        locationCode: {type: string, description: 货位编码（联查冗余）, example: HW-010101}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码（联查冗余）, example: P-0001}
+        productName: {type: string, description: 商品名称（联查冗余）, example: 抽纸 120 抽}
+        batchId: {type: integer, format: int64, description: 批次 id, example: 1001}
+        batchNo: {type: string, description: 批次号（商品 batchFlag=0 时为空）, example: B2026110601}
+        qty: {type: number, format: double, description: 当前库存数量（最多 3 位小数，不允许为负）, example: 100}
+        lockQty: {type: number, format: double, description: 锁定数量（审核后锁定，最多 3 位小数）, example: 0}
+        version: {type: integer, format: int32, description: 乐观锁版本号（过账时 CAS 更新）, example: 0}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 17:00:00'}
+    StockFlow:
+      type: object
+      description: 库存变动流水（stock_flow，只增不改，含前后数量可追溯）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        flowNo: {type: string, description: 流水号（唯一，LS+yyyyMMdd+4 位序号）, example: LS202611060001}
+        warehouseId: {type: integer, format: int64, description: 仓库 id, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码（联查冗余）, example: P-0001}
+        batchId: {type: integer, format: int64, description: 批次 id, example: 1001}
+        batchNo: {type: string, description: 批次号, example: B2026110601}
+        locationId: {type: integer, format: int64, description: 货位 id, example: 1}
+        direction: {type: integer, format: int32, description: 方向（1 增加 2 减少）, example: 1}
+        qty: {type: number, format: double, description: 变动数量（正数，最多 3 位小数）, example: 100}
+        beforeQty: {type: number, format: double, description: 变动前数量（最多 3 位小数）, example: 0}
+        afterQty: {type: number, format: double, description: 变动后数量（最多 3 位小数）, example: 100}
+        flowType: {type: string, description: 流水类型（入库/出库/调拨入/调拨出/盘盈/盘亏/调整）, example: 入库}
+        refType: {type: string, description: 来源单据类型（inbound/outbound/transfer/stocktake/manual）, example: inbound}
+        refId: {type: integer, format: int64, description: 来源单据 id, example: 1}
+        refNo: {type: string, description: 来源单号, example: RK20261106001}
+        operatorId: {type: integer, format: int64, description: 操作人 id, example: 1}
+        operatorName: {type: string, description: 操作人姓名（联查冗余）, example: 张三}
+        operTime: {type: string, description: 操作时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+        createTime: {type: string, description: 记录时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+    InventorySummaryItem:
+      type: object
+      description: 库存汇总项（/api/inventory/summary 响应 data 元素）
+      properties:
+        warehouseId: {type: integer, format: int64, description: 仓库 id（按仓库维度汇总时返回）, example: 1}
+        warehouseName: {type: string, description: 仓库名称, example: 华东一仓}
+        categoryId: {type: integer, format: int64, description: 分类 id（按分类维度汇总时返回）, example: 1}
+        categoryName: {type: string, description: 分类名称, example: 日用百货}
+        totalQty: {type: number, format: double, description: 库存总量（最多 3 位小数）, example: 1200}
+        skuCount: {type: integer, format: int32, description: 商品 SKU 数, example: 36}
+    # ---- 调拨单 ----
+    TransferOrder:
+      type: object
+      description: 调拨单（transfer_order；详情返回 items 明细）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        transferNo: {type: string, description: 调拨单号（唯一，DB+yyyyMMdd+3 位序号）, example: DB20261106001}
+        srcWarehouseId: {type: integer, format: int64, description: 源仓库 id, example: 1}
+        srcWarehouseName: {type: string, description: 源仓库名称（联查冗余）, example: 华东一仓}
+        destWarehouseId: {type: integer, format: int64, description: 目标仓库 id, example: 2}
+        destWarehouseName: {type: string, description: 目标仓库名称（联查冗余）, example: 华南一仓}
+        status: {type: integer, format: int32, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, example: 1}
+        confirmStatus: {type: integer, format: int32, description: 目标仓确认状态（0 未确认 1 已确认，待确认：是否启用二次确认环节）, example: 0}
+        totalQty: {type: number, format: double, description: 调拨数量合计（自动计算，最多 3 位小数）, example: 20}
+        remark: {type: string, description: 备注, example: 华东调拨至华南}
+        version: {type: integer, format: int32, description: 乐观锁版本号, example: 0}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+        createBy: {type: integer, format: int64, description: 创建人 id, example: 1}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-07 10:00:00'}
+        updateBy: {type: integer, format: int64, description: 更新人 id, example: 1}
+        items: {type: array, description: 明细行（详情接口返回）, items: {$ref: '#/components/schemas/TransferOrderItem'}}
+    TransferOrderItem:
+      type: object
+      description: 调拨单明细行（transfer_order_item）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 11}
+        orderId: {type: integer, format: int64, description: 调拨单 id, example: 1}
+        lineNo: {type: integer, format: int32, description: 行号, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        batchId: {type: integer, format: int64, description: 源批次 id, example: 1001}
+        srcLocationId: {type: integer, format: int64, description: 源货位 id, example: 1}
+        destLocationId: {type: integer, format: int64, description: 目标货位 id, example: 201}
+        planQty: {type: number, format: double, description: 计划调拨数量（最多 3 位小数）, example: 20}
+        actualQty: {type: number, format: double, description: 实际调拨数量（过账回写，最多 3 位小数）, example: 20}
+        remark: {type: string, description: 行备注, example: 整箱调拨}
+    TransferOrderCreateRequest:
+      type: object
+      description: 创建/编辑调拨单请求体（编辑接口 PUT /api/transfers/{id} 复用本结构）
+      required: [srcWarehouseId, destWarehouseId, items]
+      properties:
+        srcWarehouseId: {type: integer, format: int64, description: 源仓库 id, example: 1}
+        destWarehouseId: {type: integer, format: int64, description: 目标仓库 id（不得与源仓库相同）, example: 2}
+        remark: {type: string, description: 备注, example: 华东调拨至华南}
+        items:
+          type: array
+          description: 调拨明细行（至少 1 行）
+          minItems: 1
+          items: {$ref: '#/components/schemas/TransferOrderItemRequest'}
+    TransferOrderItemRequest:
+      type: object
+      description: 调拨单明细行请求体
+      required: [productId, planQty]
+      properties:
+        lineNo: {type: integer, format: int32, description: 行号（不传由服务端生成）, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        batchId: {type: integer, format: int64, description: 源批次 id（批次管理商品必填）, example: 1001}
+        srcLocationId: {type: integer, format: int64, description: 源货位 id, example: 1}
+        destLocationId: {type: integer, format: int64, description: 目标货位 id, example: 201}
+        planQty: {type: number, format: double, description: 计划调拨数量（最多 3 位小数，必须大于 0）, example: 20}
+        remark: {type: string, description: 行备注, example: 整箱调拨}
+    # ---- 盘点单 ----
+    StocktakeOrder:
+      type: object
+      description: 盘点单（stocktake_order；详情返回 items 明细；创建时自动生成明细）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        stocktakeNo: {type: string, description: 盘点单号（唯一，PD+yyyyMMdd+3 位序号）, example: PD20261106001}
+        warehouseId: {type: integer, format: int64, description: 盘点仓库 id, example: 1}
+        warehouseName: {type: string, description: 仓库名称（联查冗余）, example: 华东一仓}
+        areaId: {type: integer, format: int64, description: 盘点库区 id（scope=按库区时必填）, example: 1}
+        scope: {type: string, description: 盘点范围（全仓/按库区）, example: 按库区}
+        status: {type: integer, format: int32, description: 单据状态（0 草稿 1 待审核 2 已审核 3 已完成（已过账，POSTED）4 已驳回 5 已取消）, example: 1}
+        diffStatus: {type: string, description: 差异状态（有差异/无差异）, example: 有差异}
+        totalDifferQty: {type: number, format: double, description: 差异合计（正负相抵，最多 3 位小数）, example: -2}
+        planDate: {type: string, format: date, description: 计划盘点日期（yyyy-MM-dd）, example: '2026-11-10'}
+        finishTime: {type: string, description: 盘点完成时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-10 17:00:00'}
+        auditorId: {type: integer, format: int64, description: 审核人 id, example: 2}
+        auditTime: {type: string, description: 审核时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-11 10:00:00'}
+        posterId: {type: integer, format: int64, description: 过账人 id, example: 2}
+        postTime: {type: string, description: 过账时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-11 11:00:00'}
+        remark: {type: string, description: 备注, example: A 区月度盘点}
+        version: {type: integer, format: int32, description: 乐观锁版本号（过账时 CAS，防并发冲突 40907）, example: 0}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 16:00:00'}
+        createBy: {type: integer, format: int64, description: 创建人 id, example: 1}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-10 17:00:00'}
+        updateBy: {type: integer, format: int64, description: 更新人 id, example: 1}
+        items: {type: array, description: 盘点明细行（详情接口返回）, items: {$ref: '#/components/schemas/StocktakeOrderItem'}}
+    StocktakeOrderItem:
+      type: object
+      description: 盘点单明细行（stocktake_order_item；differ_qty=actual_qty-book_qty）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 11}
+        orderId: {type: integer, format: int64, description: 盘点单 id, example: 1}
+        lineNo: {type: integer, format: int32, description: 行号, example: 1}
+        locationId: {type: integer, format: int64, description: 盘点货位 id, example: 1}
+        locationCode: {type: string, description: 货位编码（联查冗余）, example: HW-010101}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码（联查冗余）, example: P-0001}
+        batchId: {type: integer, format: int64, description: 批次 id, example: 1001}
+        bookQty: {type: number, format: double, description: 账面数量（生成明细时点快照，最多 3 位小数）, example: 100}
+        actualQty: {type: number, format: double, description: 实盘数量（录入，最多 3 位小数）, example: 98}
+        differQty: {type: number, format: double, description: 差异数量（实盘-账面，最多 3 位小数）, example: -2}
+        diffReason: {type: string, description: 差异原因, example: 破损}
+        status: {type: integer, format: int32, description: 明细状态（0 待盘 1 已盘）, example: 1}
+    StocktakeOrderCreateRequest:
+      type: object
+      description: 创建盘点单请求体（服务端按范围自动生成明细并快照账面数）
+      required: [warehouseId, scope, planDate]
+      properties:
+        warehouseId: {type: integer, format: int64, description: 盘点仓库 id, example: 1}
+        areaId: {type: integer, format: int64, description: 盘点库区 id（scope=按库区时必填）, example: 1}
+        scope: {type: string, description: 盘点范围（全仓/按库区）, example: 按库区}
+        planDate: {type: string, format: date, description: 计划盘点日期（yyyy-MM-dd）, example: '2026-11-10'}
+        remark: {type: string, description: 备注, example: A 区月度盘点}
+    StocktakeOrderUpdateRequest:
+      type: object
+      description: 录入/更新实盘数请求体（仅草稿状态可用）
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: 实盘数录入行（按明细 id 更新）
+          minItems: 1
+          items: {$ref: '#/components/schemas/StocktakeItemInput'}
+    StocktakeItemInput:
+      type: object
+      description: 单行实盘数录入
+      required: [id, actualQty]
+      properties:
+        id: {type: integer, format: int64, description: 盘点明细 id, example: 11}
+        actualQty: {type: number, format: double, description: 实盘数量（最多 3 位小数，不允许为负）, example: 98}
+        diffReason: {type: string, description: 差异原因（有差异时建议填写）, example: 破损}
+    # ---- 预警 ----
+    AlertRule:
+      type: object
+      description: 库存预警规则（alert_rule；作为创建/编辑请求体时忽略只读字段）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        ruleName: {type: string, description: 规则名称, example: 纸巾类低于下限预警}
+        warehouseId: {type: integer, format: int64, description: 适用仓库 id（空表示全部仓库）, example: 1}
+        categoryId: {type: integer, format: int64, description: 适用商品分类 id（空表示全部分类）, example: 1}
+        productId: {type: integer, format: int64, description: 适用商品 id（空表示全部商品）, example: 1}
+        alertType: {type: string, description: 预警类型（LOW_STOCK 低于下限/HIGH_STOCK 高于上限/NEAR_EXPIRY 临期/EXPIRED 已过期）, example: LOW_STOCK}
+        thresholdValue: {type: number, format: double, description: 通用阈值（按类型生效，最多 3 位小数）, example: 100}
+        nearDays: {type: integer, format: int32, description: 临期预警提前天数（NEAR_EXPIRY 生效）, example: 30}
+        minQty: {type: number, format: double, description: 库存下限（LOW_STOCK 生效，最多 3 位小数）, example: 100}
+        maxQty: {type: number, format: double, description: 库存上限（HIGH_STOCK 生效，最多 3 位小数）, example: 5000}
+        status: {type: integer, format: int32, description: 状态（0 停用 1 启用）, example: 1}
+        remark: {type: string, description: 备注, example: 每日扫描}
+        createTime: {type: string, description: 创建时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-01 10:00:00'}
+        updateTime: {type: string, description: 更新时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-05 15:00:00'}
+        deleted: {type: integer, format: int32, description: 逻辑删除标记（0 否 1 是）, example: 0}
+    AlertRecord:
+      type: object
+      description: 库存预警记录（alert_record，由规则扫描生成）
+      properties:
+        id: {type: integer, format: int64, description: 主键 id, example: 1}
+        ruleId: {type: integer, format: int64, description: 触发的规则 id, example: 1}
+        alertType: {type: string, description: 预警类型（LOW_STOCK/HIGH_STOCK/NEAR_EXPIRY/EXPIRED）, example: LOW_STOCK}
+        warehouseId: {type: integer, format: int64, description: 仓库 id, example: 1}
+        warehouseName: {type: string, description: 仓库名称（联查冗余）, example: 华东一仓}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码（联查冗余）, example: P-0001}
+        batchId: {type: integer, format: int64, description: 批次 id（批次相关预警时返回）, example: 1001}
+        currentValue: {type: number, format: double, description: 触发时的当前值（库存量/剩余天数，最多 3 位小数）, example: 60}
+        thresholdValue: {type: number, format: double, description: 触发的阈值（最多 3 位小数）, example: 100}
+        level: {type: string, description: 预警级别（提示/警告/严重，分级规则待确认）, example: 警告}
+        status: {type: integer, format: int32, description: 处理状态（0 未处理 1 已处理）, example: 0}
+        handleRemark: {type: string, description: 处理备注, example: 已补货}
+        handleUser: {type: string, description: 处理人姓名, example: 张三}
+        handleTime: {type: string, description: 处理时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 18:00:00'}
+        createTime: {type: string, description: 预警生成时间，格式 yyyy-MM-dd HH:mm:ss, example: '2026-11-06 08:00:00'}
+    AlertHandleRequest:
+      type: object
+      description: 处理预警请求体
+      properties:
+        handleRemark: {type: string, description: 处理备注（说明处理措施）, example: 已补货，库存恢复至安全线}
+    AlertScanRequest:
+      type: object
+      description: 手动触发预警扫描请求体（body 可省略）
+      properties:
+        warehouseId: {type: integer, format: int64, description: 指定仓库 id（不传则扫描全部授权仓库）, example: 1}
+    # ---- 通用动作请求体 ----
+    AuditRequest:
+      type: object
+      description: 审核动作请求体（入库/出库/调拨/盘点审核复用）
+      properties:
+        remark: {type: string, description: 审核备注（可选）, example: 数据核对无误}
+    RejectRequest:
+      type: object
+      description: 驳回动作请求体（入库/出库/调拨/盘点驳回复用）
+      required: [reason]
+      properties:
+        reason: {type: string, description: 驳回原因（必填，将记录于操作日志）, example: 明细数量与采购单不一致，请核对}
+    # ---- 数据统计 ----
+    DashboardData:
+      type: object
+      description: 首页看板汇总数据（指标口径待确认）
+      properties:
+        totalSku: {type: integer, format: int32, description: 在库商品 SKU 数, example: 128}
+        totalQty: {type: number, format: double, description: 库存总数量（最多 3 位小数）, example: 25600}
+        todayInbound: {type: integer, format: int32, description: 今日入库单数, example: 6}
+        todayOutbound: {type: integer, format: int32, description: 今日出库单数, example: 8}
+        pendingAudit: {type: integer, format: int32, description: 待审核单据数, example: 3}
+        pendingAlerts: {type: integer, format: int32, description: 未处理预警数, example: 5}
+        alertCount7d: {type: integer, format: int32, description: 近 7 天预警数, example: 12}
+        stockValue: {type: number, format: double, description: 库存总金额（元，最多 2 位小数，基于商品参考单价）, example: 128000.5}
+    TrendPoint:
+      type: object
+      description: 出入库趋势单日数据点
+      properties:
+        date: {type: string, format: date, description: 日期（yyyy-MM-dd）, example: '2026-11-05'}
+        inboundQty: {type: number, format: double, description: 当日入库数量合计（最多 3 位小数）, example: 300}
+        outboundQty: {type: number, format: double, description: 当日出库数量合计（最多 3 位小数）, example: 250}
+    CategoryDistItem:
+      type: object
+      description: 库存分类分布项
+      properties:
+        categoryId: {type: integer, format: int64, description: 分类 id, example: 1}
+        categoryName: {type: string, description: 分类名称, example: 日用百货}
+        totalQty: {type: number, format: double, description: 分类库存数量合计（最多 3 位小数）, example: 8000}
+        proportion: {type: number, format: double, description: 占比（百分数，如 35.5 表示 35.5%）, example: 35.5}
+    OccupancyItem:
+      type: object
+      description: 货位利用率统计项
+      properties:
+        warehouseId: {type: integer, format: int64, description: 仓库 id, example: 1}
+        warehouseName: {type: string, description: 仓库名称, example: 华东一仓}
+        totalLocations: {type: integer, format: int32, description: 总货位数, example: 500}
+        usedLocations: {type: integer, format: int32, description: 已占用货位数（currentStatus=占用）, example: 320}
+        occupancyRate: {type: number, format: double, description: 利用率（百分数，如 64.0 表示 64.0%）, example: 64}
+    TopProductItem:
+      type: object
+      description: 出入库 Top 商品项
+      properties:
+        rank: {type: integer, format: int32, description: 排名（从 1 开始）, example: 1}
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码, example: P-0001}
+        productName: {type: string, description: 商品名称, example: 抽纸 120 抽}
+        totalQty: {type: number, format: double, description: 出入库数量合计（最多 3 位小数）, example: 5000}
+    StockAgingItem:
+      type: object
+      description: 库存账龄/滞销分析项（分档口径待确认）
+      properties:
+        productId: {type: integer, format: int64, description: 商品 id, example: 1}
+        productCode: {type: string, description: 商品编码, example: P-0001}
+        productName: {type: string, description: 商品名称, example: 抽纸 120 抽}
+        batchNo: {type: string, description: 批次号（按批次账龄时返回）, example: B2026110601}
+        lastOutTime: {type: string, description: 最后出库时间，格式 yyyy-MM-dd HH:mm:ss（无出库记录时为空）, example: '2026-09-20 10:00:00'}
+        agingDays: {type: integer, format: int32, description: 库龄/滞销天数, example: 45}
+        qty: {type: number, format: double, description: 当前库存数量（最多 3 位小数）, example: 200}
