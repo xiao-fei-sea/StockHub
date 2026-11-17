@@ -1,0 +1,122 @@
+/* ============================================================
+ * 基础样式：重置、排版、滚动条、焦点态
+ * ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  color: var(--c-text);
+  background-color: var(--c-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--c-primary);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-out);
+
+  &:hover {
+    color: var(--c-primary-hover);
+  }
+}
+
+img,
+svg {
+  display: block;
+  vertical-align: middle;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+::selection {
+  background-color: var(--c-primary-soft);
+  color: var(--c-primary-hover);
+}
+
+/* ---------- 焦点可见性（保留系统级 focus ring） ---------- */
+:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 1px;
+}
+
+/* ---------- 滚动条：细、克制 ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd2dc transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #cbd2dc;
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+
+  &:hover {
+    background-color: #aeb7c4;
+  }
+}
+
+/* ---------- 工具类 ---------- */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  letter-spacing: -0.01em;
+}
+
+.text-ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

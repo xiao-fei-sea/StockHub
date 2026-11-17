@@ -1,0 +1,221 @@
+/* ============================================================
+ * 通用页面/组件样式（页面中优先复用这里的类，避免重复造样式）
+ * ============================================================ */
+
+/* ---------- 页面骨架 ---------- */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-height: 100%;
+}
+
+.page--fill {
+  height: 100%;
+}
+
+/* ---------- 页面头（标题 + 描述 + 主操作） ---------- */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+
+  &__title {
+    font-size: var(--fs-xl);
+    line-height: 1.3;
+    font-weight: var(--fw-semibold);
+    color: var(--c-text);
+    letter-spacing: -0.01em;
+  }
+
+  &__desc {
+    margin-top: var(--sp-1);
+    font-size: var(--fs-sm);
+    color: var(--c-text-3);
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-shrink: 0;
+  }
+}
+
+/* ---------- 面板（白底 + 发丝边框，代替传统 el-card） ---------- */
+.panel {
+  background-color: var(--c-bg-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--c-border);
+  }
+
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--c-text);
+    letter-spacing: -0.005em;
+  }
+
+  &__desc {
+    font-size: var(--fs-xs);
+    color: var(--c-text-3);
+    font-weight: var(--fw-regular);
+  }
+
+  &__body {
+    padding: var(--sp-5);
+  }
+
+  &__body--flush {
+    padding: 0;
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-5);
+    border-top: 1px solid var(--c-border);
+    background-color: var(--c-bg-subtle);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  }
+}
+
+/* ---------- 左右分栏（树 + 列表 / 导航 + 内容） ---------- */
+.split {
+  display: grid;
+  gap: var(--sp-4);
+  min-height: 0;
+  flex: 1;
+
+  &--tree {
+    grid-template-columns: 264px minmax(0, 1fr);
+  }
+
+  &--aside {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+/* ---------- 工具条 ---------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+
+  &__group {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- 描述列表区块小标题 ---------- */
+.block-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-2);
+  text-transform: none;
+
+  &::before {
+    content: '';
+    width: 3px;
+    height: 12px;
+    border-radius: var(--radius-full);
+    background-color: var(--c-primary);
+  }
+}
+
+/* ---------- 分隔线 ---------- */
+.hr {
+  height: 1px;
+  margin: var(--sp-4) 0;
+  background-color: var(--c-border);
+  border: none;
+}
+
+/* ---------- 文字工具 ---------- */
+.t-2 {
+  color: var(--c-text-2);
+}
+
+.t-3 {
+  color: var(--c-text-3);
+}
+
+.t-xs {
+  font-size: var(--fs-xs);
+}
+
+.t-sm {
+  font-size: var(--fs-sm);
+}
+
+.t-danger {
+  color: var(--c-danger);
+}
+
+.t-success {
+  color: var(--c-success);
+}
+
+/* ---------- 状态圆点 ---------- */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--c-text-3);
+  margin-right: 6px;
+
+  &--success {
+    background-color: var(--c-success);
+  }
+  &--warning {
+    background-color: var(--c-warning);
+  }
+  &--danger {
+    background-color: var(--c-danger);
+  }
+  &--primary {
+    background-color: var(--c-primary);
+  }
+}
+
+/* ---------- 键值对（详情展示） ---------- */
+.kv {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  row-gap: var(--sp-2);
+  font-size: var(--fs-sm);
+
+  dt {
+    color: var(--c-text-3);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--c-text);
+  }
+}

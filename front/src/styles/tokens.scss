@@ -1,0 +1,121 @@
+/* ============================================================
+ * 智仓云 SmartWMS · Design Tokens
+ * 纯色体系（严禁渐变），中性色为基础 + 单一克制品牌强调色。
+ * 所有页面/组件的颜色、间距、圆角、阴影、字号必须引用这里的变量。
+ * ============================================================ */
+
+:root {
+  /* ---------- 品牌强调色（唯一主色，蓝色） ---------- */
+  --c-primary: #3b82f6;
+  --c-primary-hover: #2563eb;
+  --c-primary-active: #1d4ed8;
+  --c-primary-soft: #eff6ff;
+  --c-primary-soft-hover: #e0edff;
+  --c-primary-soft-border: #dbeafe;
+  --c-on-primary: #ffffff;
+
+  /* ---------- 语义色（低饱和克制使用：红=危险/错误，绿=成功/正向，黄=警示） ---------- */
+  --c-success: #22c55e;
+  --c-success-soft: #dcfce7;
+  --c-success-text: #15803d;
+  --c-warning: #f59e0b;
+  --c-warning-soft: #fef3c7;
+  --c-warning-text: #b45309;
+  --c-danger: #ef4444;
+  --c-danger-soft: #fee2e2;
+  --c-danger-text: #b91c1c;
+  --c-danger-hover: #dc2626;
+  --c-info: #64748b;
+  --c-info-soft: #f1f5f9;
+  --c-info-text: #475569;
+
+  /* ---------- 中性色（层级由深到浅） ---------- */
+  --c-neutral-950: #0f1115;
+  --c-neutral-900: #15171c;
+  --c-neutral-800: #1f232b;
+  --c-neutral-700: #2b303a;
+  --c-neutral-600: #3d434f;
+
+  --c-text: #14161a; // 一级文字：标题、正文
+  --c-text-2: #5a6270; // 二级文字：说明、标签
+  --c-text-3: #949ca8; // 三级文字：占位、禁用、脚注
+  --c-text-inverse: #ffffff;
+
+  --c-bg-page: #f6f7f9; // 页面背景
+  --c-bg-surface: #ffffff; // 卡片/面板背景
+  --c-bg-subtle: #f8f9fb; // 次级底色（表头、hover 行）
+  --c-bg-muted: #eef0f3; // 弱填充（tag、禁用底）
+  --c-bg-inverse: #15171c; // 深色面板（登录品牌区等）
+
+  --c-border: #e4e7eb; // 常规分割线/边框
+  --c-border-strong: #d3d8de; // 输入框、强边框
+  --c-border-inverse: #2b303a; // 深色面板上的边框
+
+  /* ---------- 间距（4/8px 栅格，禁止非 4 倍数值） ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* ---------- 圆角 ---------- */
+  --radius-sm: 4px; // 按钮、输入框、Tag
+  --radius-md: 6px; // 内部小面板
+  --radius-lg: 8px; // 卡片、对话框、抽屉
+  --radius-xl: 12px; // 大容器（登录卡片等）
+  --radius-full: 999px; // 头像、圆点
+
+  /* ---------- 阴影（轻微、有层次、不夸张） ---------- */
+  --shadow-xs: 0 1px 2px rgba(15, 17, 21, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 17, 21, 0.08);
+  --shadow-md: 0 4px 12px rgba(15, 17, 21, 0.1);
+  --shadow-lg: 0 12px 32px rgba(15, 17, 21, 0.14);
+
+  /* ---------- 字体 ---------- */
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+
+  /* ---------- 字号 / 行高 ---------- */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+  --fs-3xl: 28px;
+  --fs-4xl: 32px;
+
+  --lh-tight: 1.25;
+  --lh-base: 1.6;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* ---------- 框架尺寸（《系统页面结构设计》§3.3：侧栏 220/64、顶栏 50、页签栏 34） ---------- */
+  --sidebar-width: 220px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: 50px;
+  --tags-height: 34px;
+
+  /* ---------- 动效（自然、克制） ---------- */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-slow: 260ms;
+
+  /* ---------- 层级 ---------- */
+  --z-sticky: 100;
+  --z-topbar: 200;
+  --z-sidebar: 300;
+  --z-dropdown: 1000;
+  --z-overlay: 2000;
+  --z-modal: 3000;
+}
